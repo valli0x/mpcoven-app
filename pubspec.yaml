@@ -1,0 +1,46 @@
+name: mpc_keygen_app
+description: MPC Key Generation App for ECDSA and FROST protocols
+
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # HTTP client
+  http: ^1.2.0
+  
+  # State management
+  provider: ^6.1.1
+  
+  # Icons
+  cupertino_icons: ^1.0.6
+  
+  # QR code generation (for addresses)
+  qr_flutter: ^4.1.0
+  
+  # Share functionality
+  share_plus: ^10.0.0
+
+  # Persistent storage (JWT, settings)
+  shared_preferences: ^2.3.0
+
+  # WalletConnect v2 (mobile wallet QR sign-in)
+  walletconnect_flutter_v2: ^2.4.0
+
+  # Transitive dep of walletconnect — add explicitly so the web plugin
+  # registers properly (otherwise we get MissingPluginException on web).
+  connectivity_plus: ^6.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
