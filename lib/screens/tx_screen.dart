@@ -145,6 +145,8 @@ class _TxScreenState extends State<TxScreen> {
                       builder: (_) => WithdrawalScreen(
                         account: widget.account,
                         prefillHash: _txHash!.hash,
+                        prefillTo: _toController.text.trim(),
+                        prefillAmountBase: _amountBase?.toString(),
                       ),
                     ));
                   },

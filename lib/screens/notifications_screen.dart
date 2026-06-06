@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../models/keygen_models.dart';
 import '../providers/keygen_provider.dart';
+import '../services/units.dart';
+import '../widgets/address_balance.dart';
 import '../widgets/page_scaffold.dart';
 
 const _kEth = Color(0xFF627EEA);
@@ -19,6 +22,8 @@ class NotificationsScreen extends StatefulWidget {
 class _NotificationsScreenState extends State<NotificationsScreen> {
   // Per-message UI state keyed by message id.
   final Map<String, _MsgState> _states = {};
+  // Complete signature (hex) produced for an accepted sign-request.
+  final Map<String, String> _sigResults = {};
 
   @override
   Widget build(BuildContext context) {
@@ -37,6 +42,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     return _MessageCard(
                       message: m,
                       state: _states[m.id] ?? _MsgState.idle,
+                      signature: _sigResults[m.id],
                       onAccept: () => _accept(m),
                       onDismiss: () => _dismiss(m),
                     );
@@ -70,6 +76,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Future<void> _accept(MailboxMessage message) async {
+    if (message.type == 'sign-request') {
+      await _acceptSign(message);
+      return;
+    }
     setState(() => _states[message.id] = _MsgState.accepting);
     final provider = context.read<AppProvider>();
     final key = await provider.acceptKeygenInvite(message);
@@ -95,6 +105,33 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
   }
 
+  Future<void> _acceptSign(MailboxMessage message) async {
+    setState(() => _states[message.id] = _MsgState.accepting);
+    final provider = context.read<AppProvider>();
+    final sig = await provider.acceptSignRequest(message);
+    if (!mounted) return;
+    setState(() {
+      if (sig != null && sig.isNotEmpty) {
+        _sigResults[message.id] = sig;
+        _states[message.id] = _MsgState.done;
+      } else {
+        _states[message.id] = _MsgState.failed;
+      }
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(sig != null && sig.isNotEmpty
+            ? 'Signature completed'
+            : 'Failed to co-sign'),
+        backgroundColor: sig != null && sig.isNotEmpty ? Colors.green : Colors.red,
+      ),
+    );
+    if ((sig == null || sig.isEmpty) && mounted) {
+      await Future.delayed(const Duration(seconds: 2));
+      if (mounted) setState(() => _states[message.id] = _MsgState.idle);
+    }
+  }
+
   Future<void> _dismiss(MailboxMessage message) async {
     final provider = context.read<AppProvider>();
     await provider.ackMessage(message.id);
@@ -104,12 +141,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 class _MessageCard extends StatelessWidget {
   final MailboxMessage message;
   final _MsgState state;
+  final String? signature;
   final VoidCallback onAccept;
   final VoidCallback onDismiss;
 
   const _MessageCard({
     required this.message,
     required this.state,
+    this.signature,
     required this.onAccept,
     required this.onDismiss,
   });
@@ -121,6 +160,7 @@ class _MessageCard extends StatelessWidget {
   }
 
   bool get _isKeygen => message.type == 'keygen-init';
+  bool get _isSignRequest => message.type == 'sign-request';
   bool get _isEth => (_body['network'] ?? 'eth').toString() == 'eth';
 
   String _short(String s, {int head = 6, int tail = 6}) =>
@@ -164,7 +204,11 @@ class _MessageCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(
-                    _isKeygen ? Icons.vpn_key_rounded : Icons.mail_outline,
+                    _isKeygen
+                        ? Icons.vpn_key_rounded
+                        : _isSignRequest
+                            ? Icons.draw_outlined
+                            : Icons.mail_outline,
                     color: accent,
                     size: 20,
                   ),
@@ -175,7 +219,11 @@ class _MessageCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _isKeygen ? 'Keygen Request' : 'Message',
+                        _isKeygen
+                            ? 'Keygen Request'
+                            : _isSignRequest
+                                ? 'Signature Request'
+                                : 'Message',
                         style: theme.textTheme.titleSmall
                             ?.copyWith(fontWeight: FontWeight.bold),
                       ),
@@ -241,6 +289,8 @@ class _MessageCard extends StatelessWidget {
                   ],
                 ),
               ),
+            ] else if (_isSignRequest) ...[
+              _buildSignDetails(context, accent),
             ] else
               Container(
                 width: double.infinity,
@@ -260,7 +310,114 @@ class _MessageCard extends StatelessWidget {
             const SizedBox(height: 14),
 
             // Actions / status
-            if (_isKeygen) _buildFooter(context, accent),
+            if (_isKeygen || _isSignRequest) _buildFooter(context, accent),
+
+            // Completed signature output (sign-request only).
+            if (_isSignRequest &&
+                state == _MsgState.done &&
+                (signature ?? '').isNotEmpty)
+              _buildSignatureResult(context, accent),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSignDetails(BuildContext context, Color accent) {
+    final theme = Theme.of(context);
+    final net = (_body['network'] ?? 'eth').toString();
+    final index = _body['index']?.toString();
+    final to = (_body['to'] ?? '').toString();
+    final amountBase = (_body['amount'] ?? '').toString();
+    final hash = (_body['hash_tx'] ?? '').toString();
+
+    String amountText = '';
+    if (amountBase.isNotEmpty) {
+      try {
+        amountText = '${Units.fromBase(BigInt.parse(amountBase), net)} '
+            '${Units.symbol(net)}';
+      } catch (_) {}
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        children: [
+          _DetailRow(
+            icon: _isEth ? Icons.diamond_outlined : Icons.currency_bitcoin,
+            label: 'Account',
+            value: [net.toUpperCase(), if (index != null) '#$index'].join(' '),
+            color: accent,
+          ),
+          if (to.isNotEmpty)
+            _DetailRow(
+              icon: Icons.send_outlined,
+              label: 'To',
+              value: _short(to, head: 8, tail: 6),
+              color: accent,
+              mono: true,
+            ),
+          if (amountText.isNotEmpty)
+            _AmountDetailRow(
+              amountText: amountText,
+              amountBase: amountBase,
+              network: net,
+              color: accent,
+            ),
+          if (hash.isNotEmpty)
+            _DetailRow(
+              icon: Icons.tag,
+              label: 'Hash',
+              value: _short(hash, head: 8, tail: 6),
+              color: accent,
+              mono: true,
+              last: true,
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSignatureResult(BuildContext context, Color accent) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.green.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text('Complete signature',
+                    style: theme.textTheme.labelMedium
+                        ?.copyWith(fontWeight: FontWeight.w600)),
+                const Spacer(),
+                IconButton(
+                  icon: Icon(Icons.copy_rounded, size: 18, color: accent),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: signature ?? ''));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Signature copied')),
+                    );
+                  },
+                ),
+              ],
+            ),
+            SelectableText(
+              signature ?? '',
+              style: theme.textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
+            ),
           ],
         ),
       ),
@@ -279,7 +436,7 @@ class _MessageCard extends StatelessWidget {
               child: CircularProgressIndicator(strokeWidth: 2.2),
             ),
             const SizedBox(width: 12),
-            Text('Generating shared key…',
+            Text(_isSignRequest ? 'Co-signing…' : 'Generating shared key…',
                 style: theme.textTheme.bodyMedium
                     ?.copyWith(fontWeight: FontWeight.w500)),
           ],
@@ -289,7 +446,7 @@ class _MessageCard extends StatelessWidget {
           children: [
             Icon(Icons.check_circle, color: Colors.green, size: 20),
             const SizedBox(width: 10),
-            Text('Shared key created',
+            Text(_isSignRequest ? 'Signature ready' : 'Shared key created',
                 style: theme.textTheme.bodyMedium?.copyWith(
                     fontWeight: FontWeight.w600, color: Colors.green)),
           ],
@@ -312,8 +469,9 @@ class _MessageCard extends StatelessWidget {
             const SizedBox(width: 8),
             FilledButton.icon(
               onPressed: onAccept,
-              icon: const Icon(Icons.check, size: 18),
-              label: const Text('Accept & Generate'),
+              icon: Icon(_isSignRequest ? Icons.draw_outlined : Icons.check,
+                  size: 18),
+              label: Text(_isSignRequest ? 'Accept & Sign' : 'Accept & Generate'),
             ),
           ],
         );
@@ -357,6 +515,57 @@ class _DetailRow extends StatelessWidget {
               fontWeight: FontWeight.w600,
               fontFamily: mono ? 'monospace' : null,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Amount detail row with an ≈USD estimate fetched on build.
+class _AmountDetailRow extends StatelessWidget {
+  final String amountText;
+  final String amountBase;
+  final String network;
+  final Color color;
+
+  const _AmountDetailRow({
+    required this.amountText,
+    required this.amountBase,
+    required this.network,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        children: [
+          Icon(Icons.payments_outlined, size: 16, color: color.withValues(alpha: 0.8)),
+          const SizedBox(width: 10),
+          Text('Amount',
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+          const Spacer(),
+          Text(amountText,
+              style: theme.textTheme.bodyMedium
+                  ?.copyWith(fontWeight: FontWeight.w600)),
+          const SizedBox(width: 6),
+          FutureBuilder<double?>(
+            future: kPriceService.usdPrice(network),
+            builder: (context, snap) {
+              final price = snap.data;
+              if (price == null) return const SizedBox.shrink();
+              double human = 0;
+              try {
+                human = double.parse(Units.fromBase(BigInt.parse(amountBase), network));
+              } catch (_) {}
+              return Text('≈ \$${(human * price).toStringAsFixed(2)}',
+                  style: theme.textTheme.labelSmall
+                      ?.copyWith(color: theme.colorScheme.onSurfaceVariant));
+            },
           ),
         ],
       ),

@@ -7,7 +7,6 @@ import '../widgets/address_balance.dart';
 import 'balance_screen.dart';
 import 'notifications_screen.dart';
 import 'tx_screen.dart';
-import 'withdrawal_screen.dart';
 
 const _kEth = Color(0xFF627EEA);
 const _kBtc = Color(0xFFF7931A);
@@ -684,17 +683,6 @@ class _AccountRow extends StatelessWidget {
                     Navigator.pop(ctx);
                     Navigator.of(context).push(MaterialPageRoute(
                       builder: (_) => TxScreen(account: account),
-                    ));
-                  },
-                ),
-                _ActionTile(
-                  icon: Icons.verified_user_outlined,
-                  color: color,
-                  label: 'Withdrawal (MPC Sign)',
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => WithdrawalScreen(account: account),
                     ));
                   },
                 ),

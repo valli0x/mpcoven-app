@@ -12,7 +12,18 @@ class WithdrawalScreen extends StatefulWidget {
   /// Optional TX hash to pre-fill (e.g. coming from the Create TX Hash screen).
   final String? prefillHash;
 
-  const WithdrawalScreen({super.key, required this.account, this.prefillHash});
+  /// Optional tx details (To / amount in base units) so the partner's
+  /// sign-request notification can show what is being signed.
+  final String? prefillTo;
+  final String? prefillAmountBase;
+
+  const WithdrawalScreen({
+    super.key,
+    required this.account,
+    this.prefillHash,
+    this.prefillTo,
+    this.prefillAmountBase,
+  });
 
   @override
   State<WithdrawalScreen> createState() => _WithdrawalScreenState();
@@ -198,8 +209,17 @@ class _WithdrawalScreenState extends State<WithdrawalScreen> {
       _result = null;
     });
     try {
-      final api = context.read<AppProvider>().apiService;
-      final result = await api.sendIncompleteSignature(
+      final provider = context.read<AppProvider>();
+      // Notify the partner first so their Notifications shows a "Signature
+      // request" with what's being signed; the incsig itself is buffered by
+      // the relay, so order doesn't matter.
+      await provider.notifySignRequest(
+        account: widget.account,
+        toAddress: widget.prefillTo ?? '',
+        amountBase: widget.prefillAmountBase ?? '',
+        hashTx: hash,
+      );
+      final result = await provider.apiService.sendIncompleteSignature(
         alg: _alg,
         name: '${widget.account.network}/${widget.account.index}',
         escrowAddress: _escrowAddrController.text.trim(),

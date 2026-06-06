@@ -130,6 +130,91 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
+  // ── Co-sign (MPC withdrawal) notification flow ──
+
+  /// Partner ETH address derived from an account's stored party id
+  /// (normalizePartyID = lowercased, 0x-stripped, so we re-add 0x).
+  String _partnerAddressFor(AccountMeta account) {
+    final other = (account.pairOther ?? '').trim();
+    return other.startsWith('0x') ? other : '0x$other';
+  }
+
+  /// Initiator: tell the partner a transaction is waiting to be co-signed.
+  /// Mirrors the keygen-init notification, but type `sign-request`.
+  Future<void> notifySignRequest({
+    required AccountMeta account,
+    required String toAddress,
+    required String amountBase,
+    required String hashTx,
+  }) async {
+    final partner = _partnerAddressFor(account);
+    final pairId = findPairIdWith(partner);
+    if (pairId == null) return; // no accepted pair -> nothing to notify
+    try {
+      await _apiService.sendMailboxMessage(
+        to: partner,
+        pairId: pairId,
+        type: 'sign-request',
+        body: {
+          'alg': account.network == 'eth' ? 'ecdsa' : 'frost',
+          'name': '${account.network}/${account.index}',
+          'network': account.network,
+          'index': account.index,
+          'escrow_address': account.address,
+          'to': toAddress,
+          'amount': amountBase,
+          'hash_tx': hashTx,
+          'initiator': _authAddress,
+        },
+      );
+    } catch (_) {/* best-effort: the relay still carries the incsig */}
+  }
+
+  /// Acceptor: complete the co-signature for an incoming `sign-request`.
+  /// Returns the complete signature hex, or null on failure.
+  Future<String?> acceptSignRequest(MailboxMessage message) async {
+    final body = message.body;
+    if (body is! Map) return null;
+
+    final escrow = (body['escrow_address'] ?? '').toString();
+    final hash = (body['hash_tx'] ?? '').toString();
+
+    // Use OUR local account for this escrow (our own party ids / index).
+    AccountMeta? acct;
+    for (final a in _accounts) {
+      if (a.address.toLowerCase() == escrow.toLowerCase()) {
+        acct = a;
+        break;
+      }
+    }
+    if (acct == null) {
+      _errorMessage = 'No local account for this escrow address';
+      _state = AppState.error;
+      notifyListeners();
+      return null;
+    }
+
+    try {
+      final resp = await _apiService.acceptIncompleteSignature(
+        alg: acct.network == 'eth' ? 'ecdsa' : 'frost',
+        name: '${acct.network}/${acct.index}',
+        escrowAddress: acct.address,
+        myId: acct.pairMyId ?? '',
+        anotherId: acct.pairOther ?? '',
+        hashTx: hash.isNotEmpty ? hash : null,
+      );
+      await ackMessage(message.id);
+      await refreshMessages();
+      return resp.completeSignature;
+    } catch (e) {
+      _handleAuthError(e);
+      _errorMessage = e is ApiError ? e.message : '$e';
+      _state = AppState.error;
+      notifyListeners();
+      return null;
+    }
+  }
+
   void clearError() {
     _errorMessage = null;
     _state = AppState.idle;
