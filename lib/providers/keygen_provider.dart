@@ -228,6 +228,7 @@ class AppProvider extends ChangeNotifier {
         anotherId: account.pairOther ?? '',
         to: toAddress,
         amount: amountBase.toString(),
+        txData: hashResp.txData ?? '',
       );
       await loadCosignHistory();
       return null;
@@ -299,6 +300,23 @@ class AppProvider extends ChangeNotifier {
       );
       await ackMessage(message.id);
       await refreshMessages();
+      await loadCosignHistory();
+
+      // Return the signature to the initiator so they can broadcast too.
+      final sig = resp.completeSignature ?? '';
+      if (sig.isNotEmpty) {
+        final pairId = findPairIdWith(message.from);
+        if (pairId != null) {
+          try {
+            await _apiService.sendMailboxMessage(
+              to: message.from,
+              pairId: pairId,
+              type: 'sign-result',
+              body: {'hash_tx': hash, 'signature': sig},
+            );
+          } catch (_) {/* initiator can still broadcast from their own side */}
+        }
+      }
       return resp.completeSignature;
     } catch (e) {
       _handleAuthError(e);
@@ -472,12 +490,27 @@ class AppProvider extends ChangeNotifier {
       } else if (m.type == 'pair-removed') {
         // Partner deleted the pair — refresh so it disappears from our list.
         toAck.add(m.id);
+      } else if (m.type == 'sign-result') {
+        // Partner completed our co-sign — attach the signature to our Activity
+        // entry so we can broadcast it too. Service message, never shown.
+        final b = m.body;
+        final h = (b is Map ? b['hash_tx'] : null)?.toString();
+        final sig = (b is Map ? b['signature'] : null)?.toString();
+        if (h != null && sig != null && sig.isNotEmpty) {
+          try {
+            await _apiService.completeCosign(h, sig);
+            await loadCosignHistory();
+          } catch (_) {}
+        }
+        toAck.add(m.id);
       }
     }
 
     final kept = <MailboxMessage>[];
     for (final m in msgs) {
-      if (m.type == 'keygen-cancel' || m.type == 'pair-removed') continue;
+      if (m.type == 'keygen-cancel' ||
+          m.type == 'pair-removed' ||
+          m.type == 'sign-result') continue;
       if (m.type == 'keygen-init') {
         final b = m.body;
         final sid = (b is Map ? b['session_id'] : null)?.toString();

@@ -312,6 +312,7 @@ class ApiService {
     required String anotherId,
     String? to,
     String? amount,
+    String? txData,
   }) async {
     final response = await _makeRequest(
       'POST',
@@ -325,9 +326,17 @@ class ApiService {
         'another_id': anotherId,
         if (to != null && to.isNotEmpty) 'to': to,
         if (amount != null && amount.isNotEmpty) 'amount': amount,
+        if (txData != null && txData.isNotEmpty) 'tx_data': txData,
       },
     );
     return IncompleteSignatureResponse.fromJson(response);
+  }
+
+  /// Initiator: attach the partner-returned signature to our 'sent' history
+  /// entry so we can broadcast it too.
+  Future<void> completeCosign(String hash, String signature) async {
+    await _makeRequest('POST', '/v1/cosign/complete',
+        body: {'hash': hash, 'signature': signature});
   }
 
   // ── Co-sign history (client) ──

@@ -121,8 +121,10 @@ class _EventCardState extends State<_EventCard> {
 
   CosignEvent get event => widget.event;
 
+  // Either party can broadcast once they have both the completed signature and
+  // the tx_data (acceptor gets both directly; initiator gets the signature back
+  // via sign-result and already stored tx_data).
   bool get _canBroadcast =>
-      event.role == 'acceptor' &&
       event.status == 'completed' &&
       event.signature.isNotEmpty &&
       event.txData.isNotEmpty;

@@ -101,7 +101,7 @@ A 2-of-2 transaction is signed jointly; broadcasting needs the full tx, so the p
   destroy the other party's key material ("нельзя чтобы первый мог удалять что то у второго это опасно").
 
 ## Backend message types (mailbox `type` field)
-`keygen-init` (shown), `sign-request` (shown — co-sign request w/ tx details + tx_data),
+`keygen-init` (shown), `sign-request` (shown — co-sign request w/ tx details + tx_data), `sign-result` (service — partner returns the completed signature to the initiator),
 `keygen-cancel` (service), `pair-removed` (service). Session endpoints `/v1/session/{claim,cancel}`.
 
 ## Running & testing on macOS (two participants on one machine)
