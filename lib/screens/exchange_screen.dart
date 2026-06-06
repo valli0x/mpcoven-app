@@ -156,7 +156,9 @@ class _ExchangeCardState extends State<_ExchangeCard> {
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
+        // Translucent surface so the app gradient tints the card, matching the
+        // keygen/balance cards (instead of an opaque near-black panel).
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
             color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4)),
