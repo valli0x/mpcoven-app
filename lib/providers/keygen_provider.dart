@@ -64,6 +64,9 @@ class AppProvider extends ChangeNotifier {
   // Active / recent keygen jobs (parallel-capable).
   final List<KeygenJob> _keygenJobs = [];
 
+  // User-defined exchanges (business state lives on the Go client).
+  List<ExchangeEntry> _exchanges = [];
+
   AppProvider({required ApiService apiService}) : _apiService = apiService;
 
   ApiService get apiService => _apiService;
@@ -80,6 +83,52 @@ class AppProvider extends ChangeNotifier {
   // (removed dead _filteredPairs helper)
   List<GeneratedKey> get generatedKeys => List.unmodifiable(_generatedKeys);
   List<KeygenJob> get keygenJobs => List.unmodifiable(_keygenJobs);
+  List<ExchangeEntry> get exchanges => List.unmodifiable(_exchanges);
+
+  // ── Exchanges (Go client) ──
+
+  Future<void> loadExchanges() async {
+    try {
+      _exchanges = await _apiService.listExchanges();
+      notifyListeners();
+    } catch (e) {
+      _handleAuthError(e);
+    }
+  }
+
+  /// Create an empty exchange draft on the client; refreshes the list.
+  Future<bool> addExchange() async {
+    try {
+      await _apiService.createExchange();
+      await loadExchanges();
+      return true;
+    } catch (e) {
+      _handleAuthError(e);
+      return false;
+    }
+  }
+
+  /// Save addresses into an existing exchange.
+  Future<bool> updateExchange(
+      String id, String addressA, String addressB) async {
+    try {
+      await _apiService.updateExchange(id, addressA.trim(), addressB.trim());
+      await loadExchanges();
+      return true;
+    } catch (e) {
+      _handleAuthError(e);
+      return false;
+    }
+  }
+
+  Future<void> removeExchange(String id) async {
+    try {
+      await _apiService.deleteExchange(id);
+      await loadExchanges();
+    } catch (e) {
+      _handleAuthError(e);
+    }
+  }
 
   void clearError() {
     _errorMessage = null;

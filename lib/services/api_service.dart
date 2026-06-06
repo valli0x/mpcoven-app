@@ -199,6 +199,44 @@ class ApiService {
     return AccountMeta.fromJson(response);
   }
 
+  // ── Exchanges (client) ──
+
+  Future<List<ExchangeEntry>> listExchanges() async {
+    final response = await _makeRequest('GET', '/v1/exchanges/list');
+    final list = response['exchanges'] as List<dynamic>?;
+    return list
+            ?.map((e) => ExchangeEntry.fromJson(e as Map<String, dynamic>))
+            .toList() ??
+        [];
+  }
+
+  /// Create an exchange (draft). Addresses optional — fill via [updateExchange].
+  Future<ExchangeEntry> createExchange({
+    String addressA = '',
+    String addressB = '',
+  }) async {
+    final response = await _makeRequest(
+      'POST',
+      '/v1/exchanges/create',
+      body: {'address_a': addressA, 'address_b': addressB},
+    );
+    return ExchangeEntry.fromJson(response);
+  }
+
+  Future<ExchangeEntry> updateExchange(
+      String id, String addressA, String addressB) async {
+    final response = await _makeRequest(
+      'POST',
+      '/v1/exchanges/update',
+      body: {'id': id, 'address_a': addressA, 'address_b': addressB},
+    );
+    return ExchangeEntry.fromJson(response);
+  }
+
+  Future<void> deleteExchange(String id) async {
+    await _makeRequest('POST', '/v1/exchanges/delete', body: {'id': id});
+  }
+
   /// Permanently delete one account's key material on the local client.
   /// [address] is echoed as a confirmation guard (backend verifies it).
   Future<void> deleteAccount({

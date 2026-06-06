@@ -332,3 +332,33 @@ class GeneratedKey {
     required this.createdAt,
   });
 }
+
+/// A user-defined exchange linking two escrow accounts (any ETH/BTC addresses).
+/// Local for now; swap logic will be added later.
+class ExchangeEntry {
+  final String id;
+  final String addressA;
+  final String addressB;
+  final int createdAt; // epoch ms
+
+  ExchangeEntry({
+    required this.id,
+    required this.addressA,
+    required this.addressB,
+    required this.createdAt,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'address_a': addressA,
+        'address_b': addressB,
+        'created_at': createdAt,
+      };
+
+  factory ExchangeEntry.fromJson(Map<String, dynamic> json) => ExchangeEntry(
+        id: json['id'] as String,
+        addressA: json['address_a'] as String? ?? '',
+        addressB: json['address_b'] as String? ?? '',
+        createdAt: json['created_at'] as int? ?? 0,
+      );
+}

@@ -1,134 +1,92 @@
-# MPC Key Generator App
+# mpcoven
 
-Flutter application for generating shared cryptographic keys using Multi-Party Computation (MPC) protocols.
+Flutter front-end for an **MPC 2-of-2 signature-escrow wallet**. It drives the
+[`signature-escrow`](https://github.com/valli0x/signature-escrow) Go backend to
+generate and use threshold keys where **no single party ever holds the full
+private key**:
+
+- **ECDSA / Ethereum** via the CMP protocol
+- **FROST / Bitcoin (Taproot)** via Schnorr threshold signatures
+
+Targets **macOS desktop** and **web**.
 
 ## Features
 
-- **Generate Participant IDs**: Create unique IDs for key generation ceremony participants
-- **ECDSA Key Generation**: Generate Ethereum-compatible shared keys using CMP protocol
-- **FROST Key Generation**: Generate Bitcoin Taproot-compatible shared keys using FROST protocol
-- **Key History**: View and manage previously generated keys
-- **QR Code Display**: Display wallet addresses as QR codes for easy sharing
+- **Sign in** with MetaMask, WalletConnect, or a manual EIP-191 signature (JWT session).
+- **Pairing** — establish a 2-of-2 relationship with another participant.
+- **Distributed keygen** — run multiple ECDSA/FROST key generations in parallel,
+  each tracked as its own job card; new accounts appear automatically.
+- **Accounts** — grouped into partner folders, searchable; view address as a QR code.
+- **Balances** — on-chain balance checks in human units (e.g. `0.011`, not wei),
+  with live USD quotes.
+- **Transactions & withdrawals** — build, co-sign and broadcast.
+- **Exchange** — link two escrow addresses for a swap (business logic lives on
+  the Go client).
+- **Deletion model** — delete a pair and cascade its accounts on *your* client
+  only; a participant can never destroy the other party's key material.
+
+## Architecture
+
+The app is a thin UI over two HTTP backends:
+
+| Backend | Default URL | Responsibilities |
+|---------|-------------|------------------|
+| **Client** (local) | `http://localhost:8080` | keygen, accounts, balances, transactions, exchanges |
+| **Server** (host)  | `https://mpcoven.net/api` | auth, pairing, mailbox relay, keygen-session arbitration, escrow |
+
+Both are the same `signature-escrow` Go binary run in different modes. Their full
+HTTP APIs are documented via **Swagger UI** at `<base>/swagger/index.html`.
+
+State management is **Provider** (`ChangeNotifier`); all orchestration lives in
+`lib/providers/keygen_provider.dart`.
 
 ## Requirements
 
-- Flutter SDK 3.0.0 or higher
-- Dart SDK 3.0.0 or higher
-- Running MPC key server (from `signature-escrow` project)
+- Flutter SDK 3.x (Dart 3.x)
+- A running `signature-escrow` client (and access to a host server + relay)
 
-## Installation
+## Getting started
 
-1. Install Flutter: https://docs.flutter.dev/get-started/install
-
-2. Clone and setup the project:
 ```bash
-cd mpc_keygen_app
 flutter pub get
+
+# macOS desktop
+flutter run -d macos
+
+# web
+flutter run -d chrome
 ```
 
-3. Run on your device/emulator:
-```bash
-flutter run
-```
+Configure the **Client URL** and **Server URL** in Settings (they persist across
+restarts). To run two participants on one machine, point a second app instance
+at a second client (e.g. `http://localhost:8081`).
 
-## Server Configuration
-
-The app connects to a local MPC key server. Default URL is `http://localhost:8080`.
-
-You can change the server URL in the app settings (gear icon).
-
-### API Endpoints Used
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/v1/keygen/generate-ids` | POST | Generate participant IDs |
-| `/v1/keygen/ecdsa` | POST | Generate ECDSA shared key |
-| `/v1/keygen/frost` | POST | Generate FROST shared key |
-
-### Request/Response Formats
-
-#### Generate IDs
-```json
-// Response
-{
-  "my_id": "abc123...",
-  "another_id": "def456..."
-}
-```
-
-#### Generate ECDSA/FROST Key
-```json
-// Request
-{
-  "name": "my-wallet",
-  "my_id": "abc123...",
-  "another_id": "def456..."
-}
-
-// Response
-{
-  "public_key": "04abc...",
-  "address": "0x..." // or Bitcoin address for FROST
-}
-```
-
-## Usage Flow
-
-1. **Generate IDs**: Go to "Generate IDs" tab and tap "Generate IDs"
-2. **Share IDs**: Send the "Another Participant ID" to your co-signer
-3. **Enter Co-signer's ID**: Your co-signer's "My ID" becomes your "Another Participant ID"
-4. **Generate Key**: Both parties go to "Key Gen" tab and generate the key simultaneously
-5. **Get Address**: Both parties receive the same shared address
-
-## Project Structure
+## Project layout
 
 ```
 lib/
-├── main.dart                 # App entry point
-├── models/
-│   └── keygen_models.dart    # Data models
-├── providers/
-│   └── keygen_provider.dart  # State management
-├── screens/
-│   ├── home_screen.dart      # Main screen with tabs
-│   ├── keygen_screen.dart    # Key generation form
-│   ├── history_screen.dart   # Key history list
-│   └── settings_screen.dart  # App settings
-├── services/
-│   └── api_service.dart      # HTTP API client
-└── widgets/
-    ├── gradient_button.dart  # Custom button widget
-    ├── id_card.dart          # ID display card
-    └── key_result_card.dart  # Key result with QR
+  main.dart                  MaterialApp; loads persisted client/server URLs
+  models/keygen_models.dart  data models (accounts, pairs, keygen, exchange, ...)
+  providers/keygen_provider.dart   AppProvider — all state & orchestration
+  services/
+    api_service.dart         HTTP client (client + server base URLs)
+    metamask_service.dart    window.ethereum (web)
+    walletconnect_service.dart   Reown/WalletConnect relay
+    price_service.dart       CoinGecko USD quotes
+    units.dart               wei/satoshi <-> human-unit conversion
+  screens/                   login, home, accounts, keygen, exchange, pairing,
+                             balance, tx, withdrawal, notifications, settings
+  widgets/                   app background, bottom nav, page scaffold, buttons,
+                             amount field, key/QR cards, dialogs
 ```
 
-## Building for Release
+## Building for release
 
-### Android
 ```bash
-flutter build apk --release
-# or for App Bundle
-flutter build appbundle --release
+flutter build macos --release
+flutter build web --release
 ```
-
-### iOS
-```bash
-flutter build ios --release
-```
-
-## Troubleshooting
-
-### Network Error
-- Ensure the key server is running
-- Check the server URL in settings
-- For Android emulator, use `10.0.2.2` instead of `localhost`
-- For iOS simulator, `localhost` should work
-
-### Key Generation Fails
-- Both parties must run keygen at approximately the same time
-- Ensure IDs are correctly shared between parties
-- Check server logs for detailed error messages
 
 ## License
 
-MIT License
+[MIT](LICENSE)
