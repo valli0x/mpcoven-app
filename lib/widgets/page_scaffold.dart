@@ -11,6 +11,10 @@ class PageScaffold extends StatelessWidget {
   final double maxWidth;
   final bool showBackButton;
 
+  /// Draw the gradient AppBackground. Set false when the parent already
+  /// provides one (e.g. a tab inside HomeScreen) to avoid a doubled background.
+  final bool withBackground;
+
   const PageScaffold({
     super.key,
     this.title,
@@ -18,6 +22,7 @@ class PageScaffold extends StatelessWidget {
     required this.body,
     this.maxWidth = 720,
     this.showBackButton = true,
+    this.withBackground = true,
   });
 
   @override
@@ -26,7 +31,7 @@ class PageScaffold extends StatelessWidget {
       backgroundColor: Colors.transparent,
       body: Stack(
         children: [
-          const Positioned.fill(child: AppBackground()),
+          if (withBackground) const Positioned.fill(child: AppBackground()),
           SafeArea(
             child: Column(
               children: [

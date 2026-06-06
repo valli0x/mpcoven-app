@@ -43,6 +43,8 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
         return PageScaffold(
           title: 'Exchange',
           showBackButton: false,
+          // HomeScreen already paints the gradient; avoid a doubled background.
+          withBackground: false,
           body: Column(
             children: [
               Padding(
