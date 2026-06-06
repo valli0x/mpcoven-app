@@ -24,27 +24,46 @@ lib/
                        clientUrl='http://localhost:8080', serverUrl='https://mpcoven.net/api'
                        calls provider.restoreSession() at start
   models/keygen_models.dart   AccountMeta, Pair, PendingPairs, MailboxMessage,
-                              KeygenRequest/Response, NonceResponse, LoginResponse, ApiError, GeneratedKey
+                              KeygenRequest/Response, NonceResponse, LoginResponse, ApiError, GeneratedKey,
+                              TxHashResponse (hash + tx_data), TxSendResponse, IncompleteSignatureResponse,
+                              ExchangeEntry, CosignEvent (activity log)
   providers/keygen_provider.dart   AppProvider (ChangeNotifier) — ALL state & orchestration
   services/
-    api_service.dart           HTTP. Two base URLs: clientUrl (local :8080 keygen/accounts),
-                               serverUrl (mpcoven.net/api auth/pair/mailbox/session). `useServer:true` picks serverUrl.
-                               Error parsing handles backend {"errors":[...]} array.
+    api_service.dart           HTTP. Two base URLs: clientUrl (local :8080 keygen/accounts/balance/tx/
+                               exchanges/cosign), serverUrl (mpcoven.net/api auth/pair/mailbox/session).
+                               `useServer:true` picks serverUrl. Error parsing handles {"errors":[...]} array.
+    price_service.dart         USD quotes — Coinbase spot primary (CoinGecko fallback, 429-prone),
+                               5-min cache, keeps last-known price on failure. Shared kPriceService.
+    units.dart                 wei/satoshi <-> human units (BigInt; decimals 18/8); Units.fromBase/toBase/symbol
     metamask_service.dart + _stub/_web   window.ethereum via dart:js_interop (conditional import)
     walletconnect_service.dart           Reown relay, kWalletConnectProjectId='7a217a0a4ff507d0fdfde5749fa97160'
     cache_service.dart + _stub/_web      hardRefresh(): unregister SW + clear caches + reload (web)
   screens/
     login_screen.dart      first screen: MetaMask / WalletConnect / manual sign-in
-    home_screen.dart       _RestoringScreen while restoreSession() runs (prevents login flash),
-                           then Accounts/Keygen/Pairing + AnimatedBottomNav, wrapped in AppBackground
-    accounts_screen.dart   accounts grouped into collapsible PARTNER FOLDERS + search + delete
+    home_screen.dart       _RestoringScreen while restoreSession() runs; 4 tabs:
+                           Accounts / Keygen / Exchange / Pairing + AnimatedBottomNav, wrapped in AppBackground
+    accounts_screen.dart   accounts in collapsible PARTNER FOLDERS + search + delete; AppBar actions =
+                           notifications bell (badge IgnorePointer so it doesn't block taps), Activity, Settings.
+                           Per-account action sheet (floating rounded card): Check Balance, Send Transaction,
+                           Delete (NO Withdrawal entry — co-sign moved to Notifications). Each account row shows
+                           AddressBalance (manual refresh).
     keygen_screen.dart     protocol picker, partner tiles, parallel keygen JOB cards
-    pairing_screen.dart    create/accept pairs; per-pair "Hide pair" (local)
-    notifications_screen.dart  pretty keygen-invite cards (not raw JSON) + accept w/ status
+    pairing_screen.dart    create/accept pairs
+    exchange_screen.dart   user-defined exchanges (CRUD on the Go client): "New Exchange" creates an empty
+                           DRAFT, edit-in-card adds 2 addresses -> Save (update). Per-address AddressBalance
+                           (auto-refresh hourly). withBackground:false (HomeScreen paints the gradient).
+    notifications_screen.dart  cards for keygen-init (Accept & Generate) AND sign-request (Accept & Sign ->
+                           shows complete signature). Pretty details, not raw JSON.
+    history_screen.dart    "Activity": co-sign/broadcast log from the Go client (/v1/cosign/history).
+                           Acceptor 'completed' rows with tx_data+signature get a "Send Transaction" button.
     settings_screen.dart   Client/Server URL, Force update, Reset all data
     balance/tx/withdrawal_screen.dart
-  widgets/  app_background, animated_bottom_nav, page_scaffold, gradient_button,
-            key_result_card (QR of the wallet ADDRESS — it's correct/scannable), wallet_connect_dialog
+                           tx_screen = "Send for co-signing" ONE button (creates hash+tx_data, notifies
+                           partner, sends our incomplete sig — all under the hood; editing To/amount clears
+                           stale state). withdrawal_screen = initiator-only "Send Incomplete Signature".
+  widgets/  app_background, animated_bottom_nav, page_scaffold (withBackground flag, optional actions),
+            gradient_button, amount_field (ETH/USD toggle), address_balance (AddressBalance + kPriceService),
+            key_result_card (QR of the wallet ADDRESS), wallet_connect_dialog
 ```
 
 ## Auth flow
@@ -59,12 +78,31 @@ lib/
 - **Cancel propagation**: background poll (`_processCancellations`) drops `keygen-init` whose session was cancelled, and hides partner on `pair-removed`. `keygen-cancel`/`pair-removed` are service messages — never shown.
 - After a successful keygen, provider calls `refreshAccounts()` so the new account appears automatically (no manual Save).
 
-## Delete / hide model (user's explicit rules)
-- **Delete accounts**: permanent, cascade ALL accounts with a partner, on MY client only (calls `/v1/accounts/delete`). Requires a confirm dialog + typing the partner address. Then hides partner locally and sends `pair-removed` so the partner HIDES (never deletes — must not destroy the other party's data).
-- **Hide pair**: local-only (SharedPreferences `hidden_partners`, lowercased). Server keeps the pair. `accounts`/`pendingPairs` getters filter out hidden partners.
+## MPC co-signing (withdrawal) — the real flow now
+A 2-of-2 transaction is signed jointly; broadcasting needs the full tx, so the party who completes the signature broadcasts.
+- **Initiator** (`tx_screen` → ONE "Send for co-signing" button → `provider.startCoSign`):
+  1. `POST /v1/tx/hash` → gets `hash` + `tx_data` (RLP of the EXACT unsigned tx).
+  2. sends mailbox `sign-request` to partner with `{alg,name,escrow,to,amount,hash_tx,tx_data}`.
+  3. `POST /v1/incomplete-signature/send` → its incomplete sig goes to the relay (buffered ~10min by JetStream).
+  Records an Activity entry `initiator/sent` ("awaiting partner").
+- **Acceptor** (Notifications → "Accept & Sign" → `provider.acceptSignRequest`): `POST /v1/incomplete-signature/accept`
+  (with `tx_data`). Completes the **Ethereum-format** signature (`mpccmp.SigEthereum`, low-s + r‖s‖v — NOT GetSigByte).
+  Records `acceptor/completed` with signature **and tx_data** → Activity shows a **Send Transaction** button.
+- **Broadcast** (Activity → Send Transaction → `provider.broadcastCosign`): `POST /v1/tx/send` with `{network,signature,tx_data}`.
+  The client decodes tx_data, `WithSignature`, broadcasts verbatim (chainId forced to 1 — unsigned legacy `tx.ChainId()` is garbage).
+- Presignature is single-use: each `send`/`accept` triggers a BACKGROUND interactive re-presign on subject `<id>/rotate/<hash>`
+  (per-hash so rounds never collide). Co-sign itself runs on `<id>/cosign/<hash>` (also per-hash — fixed the
+  "filtered consumer not unique" hang). On rotation failure the consumed presig is DELETED (never silently reused).
+
+## Delete model (user's explicit rules — NO "hidden" state)
+- "скрытых не должно быть либо удален либо есть" — there is NO hide concept. A pair either exists or is deleted.
+- **Delete accounts**: permanent, cascade ALL accounts with a partner, on MY client only (`/v1/accounts/delete`,
+  confirm dialog + type partner address). Sends `pair-removed` so the partner's side hides the pair — it must NEVER
+  destroy the other party's key material ("нельзя чтобы первый мог удалять что то у второго это опасно").
 
 ## Backend message types (mailbox `type` field)
-`keygen-init` (shown), `keygen-cancel` (service), `pair-removed` (service). Plus session endpoints `/v1/session/{claim,cancel}`.
+`keygen-init` (shown), `sign-request` (shown — co-sign request w/ tx details + tx_data),
+`keygen-cancel` (service), `pair-removed` (service). Session endpoints `/v1/session/{claim,cancel}`.
 
 ## Running & testing on macOS (two participants on one machine)
 
@@ -100,4 +138,13 @@ I (Claude) cannot click the Flutter UI (it's a single Canvas; computer-use MCP i
 ## Convention for site changes
 The React marketing site lives elsewhere on the server (`/root/mpcoven/build/`). When a change touches the site (not the app), the user wants me to OUTPUT A PROMPT for a separate agent rather than edit React source directly. Only the "App" button was added to the site.
 
-## This repo is NOT a git repo (the app dir). The backend (`../signature-escrow`) is.
+## Git / GitHub
+Both repos are git + pushed to GitHub:
+- App → `git@github.com:valli0x/mpcoven-app.git` (branch `master`). MIT LICENSE, README present.
+- Backend → `git@github.com:valli0x/signature-escrow.git` (branch `main`). Push from LOCAL (the server's
+  remote is https w/o creds; deploy = scp sources + `docker compose build` on the host, then push from here).
+Commit message footer: `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
+
+## Swagger
+Backend serves Swagger UI at `<base>/swagger/index.html` (server :8282 and each client). Spec generated to
+`apidocs/` (NOT `docs/` — that's in .dockerignore): `swag init -g docs.go --parseDependency --parseInternal -o apidocs`.

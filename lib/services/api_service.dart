@@ -280,10 +280,11 @@ class ApiService {
 
   Future<TxSendResponse> sendTransaction({
     required String network,
-    required String from,
-    required String to,
-    required String value,
+    String from = '',
+    String to = '',
+    String value = '',
     required String signature,
+    String? txData,
   }) async {
     final response = await _makeRequest(
       'POST',
@@ -294,6 +295,7 @@ class ApiService {
         'to': to,
         'value': value,
         'signature': signature,
+        if (txData != null && txData.isNotEmpty) 'tx_data': txData,
       },
     );
     return TxSendResponse.fromJson(response);
@@ -308,6 +310,8 @@ class ApiService {
     required String hashTx,
     required String myId,
     required String anotherId,
+    String? to,
+    String? amount,
   }) async {
     final response = await _makeRequest(
       'POST',
@@ -319,9 +323,26 @@ class ApiService {
         'hash_tx': hashTx,
         'my_id': myId,
         'another_id': anotherId,
+        if (to != null && to.isNotEmpty) 'to': to,
+        if (amount != null && amount.isNotEmpty) 'amount': amount,
       },
     );
     return IncompleteSignatureResponse.fromJson(response);
+  }
+
+  // ── Co-sign history (client) ──
+
+  Future<List<CosignEvent>> getCosignHistory() async {
+    final response = await _makeRequest('GET', '/v1/cosign/history');
+    final list = response['events'] as List<dynamic>?;
+    return list
+            ?.map((e) => CosignEvent.fromJson(e as Map<String, dynamic>))
+            .toList() ??
+        [];
+  }
+
+  Future<void> clearCosignHistory() async {
+    await _makeRequest('POST', '/v1/cosign/history/clear');
   }
 
   Future<IncompleteSignatureResponse> acceptIncompleteSignature({
@@ -331,6 +352,9 @@ class ApiService {
     required String myId,
     required String anotherId,
     String? hashTx,
+    String? to,
+    String? amount,
+    String? txData,
   }) async {
     final body = <String, dynamic>{
       'alg': alg,
@@ -340,6 +364,9 @@ class ApiService {
       'another_id': anotherId,
     };
     if (hashTx != null) body['hash_tx'] = hashTx;
+    if (to != null && to.isNotEmpty) body['to'] = to;
+    if (amount != null && amount.isNotEmpty) body['amount'] = amount;
+    if (txData != null && txData.isNotEmpty) body['tx_data'] = txData;
     final response = await _makeRequest(
       'POST',
       '/v1/incomplete-signature/accept',

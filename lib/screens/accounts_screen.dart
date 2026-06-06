@@ -5,6 +5,7 @@ import '../models/keygen_models.dart';
 import '../providers/keygen_provider.dart';
 import '../widgets/address_balance.dart';
 import 'balance_screen.dart';
+import 'history_screen.dart';
 import 'notifications_screen.dart';
 import 'tx_screen.dart';
 
@@ -124,6 +125,13 @@ class _AccountsScreenState extends State<AccountsScreen> {
               snap: true,
               actions: [
                 _NotificationsBell(messageCount: provider.messages.length),
+                IconButton(
+                  icon: const Icon(Icons.history),
+                  tooltip: 'Activity',
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const HistoryScreen()),
+                  ),
+                ),
                 IconButton(
                   icon: const Icon(Icons.settings_outlined),
                   onPressed: widget.onSettingsPressed,
@@ -848,21 +856,27 @@ class _NotificationsBell extends StatelessWidget {
           },
         ),
         if (messageCount > 0)
+          // IgnorePointer so the badge never swallows taps meant for the bell.
           Positioned(
-            right: 8,
-            top: 8,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.error,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
-              child: Text(
-                messageCount > 9 ? '9+' : '$messageCount',
-                style: const TextStyle(
-                    color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-                textAlign: TextAlign.center,
+            right: 6,
+            top: 6,
+            child: IgnorePointer(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.error,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: theme.colorScheme.surface, width: 1.5),
+                ),
+                constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                child: Text(
+                  messageCount > 9 ? '9+' : '$messageCount',
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold),
+                  textAlign: TextAlign.center,
+                ),
               ),
             ),
           ),

@@ -34,7 +34,6 @@ class _WithdrawalScreenState extends State<WithdrawalScreen> {
   final _escrowAddrController = TextEditingController();
 
   bool _isSending = false;
-  bool _isAccepting = false;
   IncompleteSignatureResponse? _result;
   String? _error;
 
@@ -121,16 +120,12 @@ class _WithdrawalScreenState extends State<WithdrawalScreen> {
               onPressed: _send,
             ),
             const SizedBox(height: 12),
-            OutlinedButton.icon(
-              icon: _isAccepting
-                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.check_circle_outline),
-              label: Text(_isAccepting ? 'Accepting...' : 'Accept & Complete Signature'),
-              onPressed: _isAccepting ? null : _accept,
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              ),
+            Text(
+              'The partner completes this signature from their Notifications '
+              '(“Accept & Sign”).',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
             ),
 
             if (_result != null) ...[
@@ -226,6 +221,8 @@ class _WithdrawalScreenState extends State<WithdrawalScreen> {
         hashTx: hash,
         myId: widget.account.pairMyId ?? '',
         anotherId: widget.account.pairOther ?? '',
+        to: widget.prefillTo,
+        amount: widget.prefillAmountBase,
       );
       setState(() => _result = result);
     } on ApiError catch (e) {
@@ -237,30 +234,4 @@ class _WithdrawalScreenState extends State<WithdrawalScreen> {
     }
   }
 
-  Future<void> _accept() async {
-    setState(() {
-      _isAccepting = true;
-      _error = null;
-      _result = null;
-    });
-    try {
-      final api = context.read<AppProvider>().apiService;
-      final hash = _hashTxController.text.trim();
-      final result = await api.acceptIncompleteSignature(
-        alg: _alg,
-        name: '${widget.account.network}/${widget.account.index}',
-        escrowAddress: _escrowAddrController.text.trim(),
-        myId: widget.account.pairMyId ?? '',
-        anotherId: widget.account.pairOther ?? '',
-        hashTx: hash.isNotEmpty ? hash : null,
-      );
-      setState(() => _result = result);
-    } on ApiError catch (e) {
-      setState(() => _error = e.message);
-    } catch (e) {
-      setState(() => _error = '$e');
-    } finally {
-      setState(() => _isAccepting = false);
-    }
-  }
 }

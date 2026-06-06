@@ -130,6 +130,30 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
+  // ── Co-sign history ──
+
+  List<CosignEvent> _cosignHistory = [];
+  List<CosignEvent> get cosignHistory => List.unmodifiable(_cosignHistory);
+
+  Future<void> loadCosignHistory() async {
+    try {
+      _cosignHistory = await _apiService.getCosignHistory();
+      notifyListeners();
+    } catch (e) {
+      _handleAuthError(e);
+    }
+  }
+
+  Future<void> clearCosignHistory() async {
+    try {
+      await _apiService.clearCosignHistory();
+      _cosignHistory = [];
+      notifyListeners();
+    } catch (e) {
+      _handleAuthError(e);
+    }
+  }
+
   // ── Co-sign (MPC withdrawal) notification flow ──
 
   /// Partner ETH address derived from an account's stored party id
@@ -146,6 +170,7 @@ class AppProvider extends ChangeNotifier {
     required String toAddress,
     required String amountBase,
     required String hashTx,
+    String txData = '',
   }) async {
     final partner = _partnerAddressFor(account);
     final pairId = findPairIdWith(partner);
@@ -164,10 +189,73 @@ class AppProvider extends ChangeNotifier {
           'to': toAddress,
           'amount': amountBase,
           'hash_tx': hashTx,
+          'tx_data': txData,
           'initiator': _authAddress,
         },
       );
     } catch (_) {/* best-effort: the relay still carries the incsig */}
+  }
+
+  /// Initiator one-shot: create the tx hash, notify the partner, and send our
+  /// incomplete signature — all under the hood. Broadcast happens later from
+  /// the partner's Activity (they receive tx_data in the notification).
+  /// Returns null on success, or an error message.
+  Future<String?> startCoSign({
+    required AccountMeta account,
+    required String toAddress,
+    required BigInt amountBase,
+  }) async {
+    try {
+      final hashResp = await _apiService.createTxHash(
+        network: account.network,
+        from: account.address,
+        to: toAddress,
+        amount: amountBase.toInt(),
+      );
+      await notifySignRequest(
+        account: account,
+        toAddress: toAddress,
+        amountBase: amountBase.toString(),
+        hashTx: hashResp.hash,
+        txData: hashResp.txData ?? '',
+      );
+      await _apiService.sendIncompleteSignature(
+        alg: account.network == 'eth' ? 'ecdsa' : 'frost',
+        name: '${account.network}/${account.index}',
+        escrowAddress: account.address,
+        hashTx: hashResp.hash,
+        myId: account.pairMyId ?? '',
+        anotherId: account.pairOther ?? '',
+        to: toAddress,
+        amount: amountBase.toString(),
+      );
+      await loadCosignHistory();
+      return null;
+    } catch (e) {
+      _handleAuthError(e);
+      return e is ApiError ? e.message : '$e';
+    }
+  }
+
+  /// Broadcast a completed co-sign (acceptor side) from Activity.
+  /// Returns the on-chain tx hash, or null on failure.
+  Future<String?> broadcastCosign(CosignEvent ev) async {
+    try {
+      final resp = await _apiService.sendTransaction(
+        network: ev.network,
+        signature: ev.signature,
+        txData: ev.txData,
+        to: ev.to,
+        value: ev.amount,
+      );
+      await loadCosignHistory();
+      return resp.txHash;
+    } catch (e) {
+      _handleAuthError(e);
+      _errorMessage = e is ApiError ? e.message : '$e';
+      notifyListeners();
+      return null;
+    }
   }
 
   /// Acceptor: complete the co-signature for an incoming `sign-request`.
@@ -178,6 +266,9 @@ class AppProvider extends ChangeNotifier {
 
     final escrow = (body['escrow_address'] ?? '').toString();
     final hash = (body['hash_tx'] ?? '').toString();
+    final to = (body['to'] ?? '').toString();
+    final amount = (body['amount'] ?? '').toString();
+    final txData = (body['tx_data'] ?? '').toString();
 
     // Use OUR local account for this escrow (our own party ids / index).
     AccountMeta? acct;
@@ -202,6 +293,9 @@ class AppProvider extends ChangeNotifier {
         myId: acct.pairMyId ?? '',
         anotherId: acct.pairOther ?? '',
         hashTx: hash.isNotEmpty ? hash : null,
+        to: to,
+        amount: amount,
+        txData: txData,
       );
       await ackMessage(message.id);
       await refreshMessages();

@@ -244,17 +244,27 @@ class _ExchangeCardState extends State<_ExchangeCard> {
                   size: 18),
             ),
             const SizedBox(width: 10),
-            Expanded(
+            Flexible(
               child: Text(_short(addr, head: 10, tail: 8),
                   style: theme.textTheme.bodyMedium?.copyWith(
                       fontFamily: 'monospace', fontWeight: FontWeight.w500)),
             ),
+            // Copy sits right next to the address (not pushed to the far edge).
             IconButton(
               icon: Icon(Icons.copy_rounded,
                   size: 16, color: color.withValues(alpha: 0.8)),
               visualDensity: VisualDensity.compact,
-              onPressed: () => Clipboard.setData(ClipboardData(text: addr)),
+              constraints: const BoxConstraints(),
+              padding: const EdgeInsets.only(left: 8, right: 4),
+              tooltip: 'Copy address',
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: addr));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Address copied')),
+                );
+              },
             ),
+            const Spacer(),
           ],
         ),
         Padding(

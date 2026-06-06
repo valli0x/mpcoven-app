@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../models/keygen_models.dart';
 import '../providers/keygen_provider.dart';
 import '../widgets/amount_field.dart';
 import '../widgets/gradient_button.dart';
 import '../widgets/page_scaffold.dart';
-import 'withdrawal_screen.dart';
 
+/// Initiator screen: enter recipient + amount and send the transaction for
+/// 2-of-2 co-signing in one tap. The hash, partner notification and our
+/// incomplete signature are all handled under the hood. The partner approves
+/// from their Notifications and broadcasts from Activity.
 class TxScreen extends StatefulWidget {
   final AccountMeta account;
 
@@ -20,19 +22,15 @@ class TxScreen extends StatefulWidget {
 class _TxScreenState extends State<TxScreen> {
   final _formKey = GlobalKey<FormState>();
   final _toController = TextEditingController();
-  final _signatureController = TextEditingController();
   BigInt? _amountBase;
 
-  bool _loadingHash = false;
-  bool _loadingSend = false;
-  TxHashResponse? _txHash;
-  TxSendResponse? _txSend;
+  bool _loading = false;
+  bool _sent = false;
   String? _error;
 
   @override
   void dispose() {
     _toController.dispose();
-    _signatureController.dispose();
     super.dispose();
   }
 
@@ -54,22 +52,29 @@ class _TxScreenState extends State<TxScreen> {
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.08),
+                  color: color.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: color.withOpacity(0.2)),
+                  border: Border.all(color: color.withValues(alpha: 0.2)),
                 ),
                 child: Row(
                   children: [
-                    Icon(isEth ? Icons.diamond_outlined : Icons.currency_bitcoin, color: color),
+                    Icon(
+                        isEth
+                            ? Icons.diamond_outlined
+                            : Icons.currency_bitcoin,
+                        color: color),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('From', style: theme.textTheme.labelSmall?.copyWith(color: color)),
+                          Text('From',
+                              style: theme.textTheme.labelSmall
+                                  ?.copyWith(color: color)),
                           Text(
                             widget.account.address,
-                            style: theme.textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
+                            style: theme.textTheme.bodySmall
+                                ?.copyWith(fontFamily: 'monospace'),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ],
@@ -87,126 +92,72 @@ class _TxScreenState extends State<TxScreen> {
                   prefixIcon: const Icon(Icons.send_outlined),
                 ),
                 validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+                onChanged: (_) => _resetSent(),
               ),
               const SizedBox(height: 16),
               AmountField(
                 network: widget.account.network,
                 accent: color,
                 label: 'Amount',
-                onBaseChanged: (b) => _amountBase = b,
+                onBaseChanged: (b) {
+                  _amountBase = b;
+                  _resetSent();
+                },
               ),
               const SizedBox(height: 24),
-
               GradientButton(
-                text: 'Create TX Hash',
-                icon: Icons.tag,
-                isLoading: _loadingHash,
-                gradientColors: [color, color.withOpacity(0.7)],
-                onPressed: _createHash,
+                text: 'Send for co-signing',
+                icon: Icons.handshake_outlined,
+                isLoading: _loading,
+                gradientColors: [color, color.withValues(alpha: 0.7)],
+                onPressed: _start,
               ),
-
-              if (_txHash != null) ...[
-                const SizedBox(height: 20),
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.5),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Text('TX Hash', style: theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600)),
-                          const Spacer(),
-                          IconButton(
-                            icon: Icon(Icons.copy_rounded, size: 18, color: color),
-                            onPressed: () {
-                              Clipboard.setData(ClipboardData(text: _txHash!.hash));
-                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Hash copied')));
-                            },
-                          ),
-                        ],
-                      ),
-                      SelectableText(
-                        _txHash!.hash,
-                        style: theme.textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.handshake_outlined, size: 18),
-                  label: const Text('Co-sign this hash (2-of-2)'),
-                  onPressed: () {
-                    Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => WithdrawalScreen(
-                        account: widget.account,
-                        prefillHash: _txHash!.hash,
-                        prefillTo: _toController.text.trim(),
-                        prefillAmountBase: _amountBase?.toString(),
-                      ),
-                    ));
-                  },
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _signatureController,
-                  decoration: const InputDecoration(
-                    labelText: 'Signature (hex)',
-                    hintText: '0x...',
-                    prefixIcon: Icon(Icons.draw_outlined),
-                  ),
-                  maxLines: 2,
-                ),
-                const SizedBox(height: 16),
-                GradientButton(
-                  text: 'Send Transaction',
-                  icon: Icons.send,
-                  isLoading: _loadingSend,
-                  gradientColors: [Colors.green, Colors.green.shade700],
-                  onPressed: _send,
-                ),
-              ],
-
-              if (_txSend != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                'The partner approves the signature in their Notifications and '
+                'broadcasts it from Activity. Track status in Activity.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              ),
+              if (_sent) ...[
                 const SizedBox(height: 20),
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Colors.green.withOpacity(0.1),
+                    color: Colors.green.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.green.withOpacity(0.3)),
+                    border:
+                        Border.all(color: Colors.green.withValues(alpha: 0.3)),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  child: Row(
                     children: [
-                      Row(
-                        children: [
-                          const Icon(Icons.check_circle, color: Colors.green),
-                          const SizedBox(width: 12),
-                          Text('Sent!', style: theme.textTheme.titleSmall?.copyWith(color: Colors.green, fontWeight: FontWeight.bold)),
-                        ],
+                      const Icon(Icons.check_circle, color: Colors.green),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Sent for co-signing. The partner will approve & '
+                          'broadcast. See Activity for status.',
+                          style: theme.textTheme.bodySmall,
+                        ),
                       ),
-                      const SizedBox(height: 8),
-                      Text('TX: ${_txSend!.txHash}', style: theme.textTheme.bodySmall?.copyWith(fontFamily: 'monospace')),
-                      Text(_txSend!.message, style: theme.textTheme.bodySmall),
                     ],
                   ),
                 ),
               ],
-
               if (_error != null) ...[
                 const SizedBox(height: 16),
                 Container(
                   padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(color: theme.colorScheme.errorContainer, borderRadius: BorderRadius.circular(12)),
-                  child: Text(_error!, style: TextStyle(color: theme.colorScheme.onErrorContainer)),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.errorContainer,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(_error!,
+                      style:
+                          TextStyle(color: theme.colorScheme.onErrorContainer)),
                 ),
               ],
-
               const SizedBox(height: 32),
             ],
           ),
@@ -215,7 +166,16 @@ class _TxScreenState extends State<TxScreen> {
     );
   }
 
-  Future<void> _createHash() async {
+  void _resetSent() {
+    if (_sent || _error != null) {
+      setState(() {
+        _sent = false;
+        _error = null;
+      });
+    }
+  }
+
+  Future<void> _start() async {
     if (!_formKey.currentState!.validate()) return;
     final base = _amountBase;
     if (base == null || base <= BigInt.zero) {
@@ -223,51 +183,20 @@ class _TxScreenState extends State<TxScreen> {
       return;
     }
     setState(() {
-      _loadingHash = true;
+      _loading = true;
       _error = null;
-      _txHash = null;
+      _sent = false;
     });
-    try {
-      final api = context.read<AppProvider>().apiService;
-      final result = await api.createTxHash(
-        network: widget.account.network,
-        from: widget.account.address,
-        to: _toController.text.trim(),
-        amount: base.toInt(),
-      );
-      setState(() => _txHash = result);
-    } on ApiError catch (e) {
-      setState(() => _error = e.message);
-    } catch (e) {
-      setState(() => _error = '$e');
-    } finally {
-      setState(() => _loadingHash = false);
-    }
-  }
-
-  Future<void> _send() async {
-    final sig = _signatureController.text.trim();
-    if (sig.isEmpty) return;
+    final err = await context.read<AppProvider>().startCoSign(
+          account: widget.account,
+          toAddress: _toController.text.trim(),
+          amountBase: base,
+        );
+    if (!mounted) return;
     setState(() {
-      _loadingSend = true;
-      _error = null;
+      _loading = false;
+      _sent = err == null;
+      _error = err;
     });
-    try {
-      final api = context.read<AppProvider>().apiService;
-      final result = await api.sendTransaction(
-        network: widget.account.network,
-        from: widget.account.address,
-        to: _toController.text.trim(),
-        value: (_amountBase ?? BigInt.zero).toString(),
-        signature: sig,
-      );
-      setState(() => _txSend = result);
-    } on ApiError catch (e) {
-      setState(() => _error = e.message);
-    } catch (e) {
-      setState(() => _error = '$e');
-    } finally {
-      setState(() => _loadingSend = false);
-    }
   }
 }

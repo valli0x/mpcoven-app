@@ -333,6 +333,58 @@ class GeneratedKey {
   });
 }
 
+/// One local co-sign / broadcast history entry (recorded on the Go client).
+class CosignEvent {
+  final String id;
+  final String role; // initiator | acceptor | broadcast
+  final String status; // sent | completed | failed | broadcast
+  final String network;
+  final int index;
+  final String escrow;
+  final String to;
+  final String amount; // base units
+  final String hash;
+  final String signature;
+  final String txData;
+  final String txHash;
+  final String error;
+  final int createdAt; // unix ms
+
+  CosignEvent({
+    required this.id,
+    required this.role,
+    required this.status,
+    required this.network,
+    required this.index,
+    required this.escrow,
+    required this.to,
+    required this.amount,
+    required this.hash,
+    required this.signature,
+    required this.txData,
+    required this.txHash,
+    required this.error,
+    required this.createdAt,
+  });
+
+  factory CosignEvent.fromJson(Map<String, dynamic> json) => CosignEvent(
+        id: json['id'] as String? ?? '',
+        role: json['role'] as String? ?? '',
+        status: json['status'] as String? ?? '',
+        network: json['network'] as String? ?? 'eth',
+        index: json['index'] as int? ?? 0,
+        escrow: json['escrow'] as String? ?? '',
+        to: json['to'] as String? ?? '',
+        amount: json['amount'] as String? ?? '',
+        hash: json['hash'] as String? ?? '',
+        signature: json['signature'] as String? ?? '',
+        txData: json['tx_data'] as String? ?? '',
+        txHash: json['tx_hash'] as String? ?? '',
+        error: json['error'] as String? ?? '',
+        createdAt: json['created_at'] as int? ?? 0,
+      );
+}
+
 /// A user-defined exchange linking two escrow accounts (any ETH/BTC addresses).
 /// Local for now; swap logic will be added later.
 class ExchangeEntry {
