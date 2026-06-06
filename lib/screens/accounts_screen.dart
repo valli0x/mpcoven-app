@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../models/keygen_models.dart';
 import '../providers/keygen_provider.dart';
+import '../widgets/address_balance.dart';
 import 'balance_screen.dart';
 import 'notifications_screen.dart';
 import 'tx_screen.dart';
@@ -567,6 +568,14 @@ class _AccountRow extends StatelessWidget {
                         fontFamily: 'monospace',
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
+                    ),
+                    const SizedBox(height: 4),
+                    AddressBalance(
+                      address: account.address,
+                      network: account.network,
+                      accent: color,
+                      // Accounts: refresh only on the button.
+                      autoRefresh: false,
                     ),
                   ],
                 ),
