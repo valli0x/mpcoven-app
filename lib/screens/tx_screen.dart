@@ -6,6 +6,7 @@ import '../providers/keygen_provider.dart';
 import '../widgets/amount_field.dart';
 import '../widgets/gradient_button.dart';
 import '../widgets/page_scaffold.dart';
+import 'withdrawal_screen.dart';
 
 class TxScreen extends StatefulWidget {
   final AccountMeta account;
@@ -134,6 +135,19 @@ class _TxScreenState extends State<TxScreen> {
                       ),
                     ],
                   ),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.handshake_outlined, size: 18),
+                  label: const Text('Co-sign this hash (2-of-2)'),
+                  onPressed: () {
+                    Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => WithdrawalScreen(
+                        account: widget.account,
+                        prefillHash: _txHash!.hash,
+                      ),
+                    ));
+                  },
                 ),
                 const SizedBox(height: 16),
                 TextFormField(

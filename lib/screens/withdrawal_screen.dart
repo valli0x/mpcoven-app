@@ -9,7 +9,10 @@ import '../widgets/page_scaffold.dart';
 class WithdrawalScreen extends StatefulWidget {
   final AccountMeta account;
 
-  const WithdrawalScreen({super.key, required this.account});
+  /// Optional TX hash to pre-fill (e.g. coming from the Create TX Hash screen).
+  final String? prefillHash;
+
+  const WithdrawalScreen({super.key, required this.account, this.prefillHash});
 
   @override
   State<WithdrawalScreen> createState() => _WithdrawalScreenState();
@@ -30,6 +33,9 @@ class _WithdrawalScreenState extends State<WithdrawalScreen> {
   void initState() {
     super.initState();
     _escrowAddrController.text = widget.account.address;
+    if (widget.prefillHash != null && widget.prefillHash!.isNotEmpty) {
+      _hashTxController.text = widget.prefillHash!;
+    }
   }
 
   @override
