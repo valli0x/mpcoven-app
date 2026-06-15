@@ -130,6 +130,83 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
+  /// Accepted-pair partner addresses (for the exchange-proposal target picker).
+  List<String> get acceptedPartners {
+    final out = <String>{};
+    final pairs = _pendingPairs;
+    if (pairs != null && _authAddress != null) {
+      final me = _authAddress!.toLowerCase();
+      for (final p in [...pairs.incoming, ...pairs.outgoing]) {
+        if (p.status != 'accepted') continue;
+        final other = p.initiator.toLowerCase() == me ? p.partner : p.initiator;
+        out.add(other);
+      }
+    }
+    return out.toList();
+  }
+
+  /// Initiator: mark the exchange proposed to [partner] and notify them.
+  Future<bool> proposeExchange(ExchangeEntry e, String partner) async {
+    final pairId = findPairIdWith(partner);
+    if (pairId == null) return false;
+    try {
+      await _apiService.updateExchange(e.id, e.addressA, e.addressB,
+          partner: partner, status: 'proposed');
+      await _apiService.sendMailboxMessage(
+        to: partner,
+        pairId: pairId,
+        type: 'exchange-proposal',
+        body: {
+          'id': e.id,
+          'address_a': e.addressA,
+          'address_b': e.addressB,
+          'initiator': _authAddress,
+        },
+      );
+      await loadExchanges();
+      return true;
+    } catch (err) {
+      _handleAuthError(err);
+      return false;
+    }
+  }
+
+  /// Acceptor: import a proposed exchange (status accepted) and confirm back.
+  Future<bool> acceptExchangeProposal(MailboxMessage message) async {
+    final body = message.body;
+    if (body is! Map) return false;
+    final id = (body['id'] ?? '').toString();
+    if (id.isEmpty) return false;
+    try {
+      await _apiService.upsertExchange(
+        id: id,
+        addressA: (body['address_a'] ?? '').toString(),
+        addressB: (body['address_b'] ?? '').toString(),
+        partner: message.from,
+        status: 'accepted',
+      );
+      await ackMessage(message.id);
+      await refreshMessages();
+      await loadExchanges();
+      // Confirm back so the initiator flips to accepted.
+      final pairId = findPairIdWith(message.from);
+      if (pairId != null) {
+        try {
+          await _apiService.sendMailboxMessage(
+            to: message.from,
+            pairId: pairId,
+            type: 'exchange-accepted',
+            body: {'id': id},
+          );
+        } catch (_) {}
+      }
+      return true;
+    } catch (e) {
+      _handleAuthError(e);
+      return false;
+    }
+  }
+
   // ── Co-sign history ──
 
   List<CosignEvent> _cosignHistory = [];
@@ -503,6 +580,27 @@ class AppProvider extends ChangeNotifier {
           } catch (_) {}
         }
         toAck.add(m.id);
+      } else if (m.type == 'exchange-accepted') {
+        // Partner accepted our exchange — flip the local entry to accepted.
+        final b = m.body;
+        final id = (b is Map ? b['id'] : null)?.toString();
+        if (id != null) {
+          ExchangeEntry? ex;
+          for (final e in _exchanges) {
+            if (e.id == id) {
+              ex = e;
+              break;
+            }
+          }
+          if (ex != null) {
+            try {
+              await _apiService.updateExchange(id, ex.addressA, ex.addressB,
+                  status: 'accepted');
+              await loadExchanges();
+            } catch (_) {}
+          }
+        }
+        toAck.add(m.id);
       }
     }
 
@@ -510,7 +608,8 @@ class AppProvider extends ChangeNotifier {
     for (final m in msgs) {
       if (m.type == 'keygen-cancel' ||
           m.type == 'pair-removed' ||
-          m.type == 'sign-result') continue;
+          m.type == 'sign-result' ||
+          m.type == 'exchange-accepted') continue;
       if (m.type == 'keygen-init') {
         final b = m.body;
         final sid = (b is Map ? b['session_id'] : null)?.toString();

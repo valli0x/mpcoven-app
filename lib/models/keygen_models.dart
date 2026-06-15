@@ -391,12 +391,16 @@ class ExchangeEntry {
   final String id;
   final String addressA;
   final String addressB;
+  final String partner; // ETH address of the other participant
+  final String status; // draft | proposed | accepted
   final int createdAt; // epoch ms
 
   ExchangeEntry({
     required this.id,
     required this.addressA,
     required this.addressB,
+    this.partner = '',
+    this.status = 'draft',
     required this.createdAt,
   });
 
@@ -404,6 +408,8 @@ class ExchangeEntry {
         'id': id,
         'address_a': addressA,
         'address_b': addressB,
+        'partner': partner,
+        'status': status,
         'created_at': createdAt,
       };
 
@@ -411,6 +417,8 @@ class ExchangeEntry {
         id: json['id'] as String,
         addressA: json['address_a'] as String? ?? '',
         addressB: json['address_b'] as String? ?? '',
+        partner: json['partner'] as String? ?? '',
+        status: json['status'] as String? ?? 'draft',
         createdAt: json['created_at'] as int? ?? 0,
       );
 }

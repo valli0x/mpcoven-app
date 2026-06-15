@@ -80,6 +80,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       await _acceptSign(message);
       return;
     }
+    if (message.type == 'exchange-proposal') {
+      await _acceptExchange(message);
+      return;
+    }
     setState(() => _states[message.id] = _MsgState.accepting);
     final provider = context.read<AppProvider>();
     final key = await provider.acceptKeygenInvite(message);
@@ -100,6 +104,24 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     // linger briefly, then it disappears from the list on the next refresh.
     if (key == null && mounted) {
       // allow retry after a failure
+      await Future.delayed(const Duration(seconds: 2));
+      if (mounted) setState(() => _states[message.id] = _MsgState.idle);
+    }
+  }
+
+  Future<void> _acceptExchange(MailboxMessage message) async {
+    setState(() => _states[message.id] = _MsgState.accepting);
+    final ok = await context.read<AppProvider>().acceptExchangeProposal(message);
+    if (!mounted) return;
+    setState(() =>
+        _states[message.id] = ok ? _MsgState.done : _MsgState.failed);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(ok ? 'Exchange added' : 'Failed to accept exchange'),
+        backgroundColor: ok ? Colors.green : Colors.red,
+      ),
+    );
+    if (!ok && mounted) {
       await Future.delayed(const Duration(seconds: 2));
       if (mounted) setState(() => _states[message.id] = _MsgState.idle);
     }
@@ -161,6 +183,7 @@ class _MessageCard extends StatelessWidget {
 
   bool get _isKeygen => message.type == 'keygen-init';
   bool get _isSignRequest => message.type == 'sign-request';
+  bool get _isExchange => message.type == 'exchange-proposal';
   bool get _isEth => (_body['network'] ?? 'eth').toString() == 'eth';
 
   String _short(String s, {int head = 6, int tail = 6}) =>
@@ -208,7 +231,9 @@ class _MessageCard extends StatelessWidget {
                         ? Icons.vpn_key_rounded
                         : _isSignRequest
                             ? Icons.draw_outlined
-                            : Icons.mail_outline,
+                            : _isExchange
+                                ? Icons.swap_horiz_rounded
+                                : Icons.mail_outline,
                     color: accent,
                     size: 20,
                   ),
@@ -223,7 +248,9 @@ class _MessageCard extends StatelessWidget {
                             ? 'Keygen Request'
                             : _isSignRequest
                                 ? 'Signature Request'
-                                : 'Message',
+                                : _isExchange
+                                    ? 'Exchange Proposal'
+                                    : 'Message',
                         style: theme.textTheme.titleSmall
                             ?.copyWith(fontWeight: FontWeight.bold),
                       ),
@@ -291,6 +318,8 @@ class _MessageCard extends StatelessWidget {
               ),
             ] else if (_isSignRequest) ...[
               _buildSignDetails(context, accent),
+            ] else if (_isExchange) ...[
+              _buildExchangeDetails(context, accent),
             ] else
               Container(
                 width: double.infinity,
@@ -310,7 +339,8 @@ class _MessageCard extends StatelessWidget {
             const SizedBox(height: 14),
 
             // Actions / status
-            if (_isKeygen || _isSignRequest) _buildFooter(context, accent),
+            if (_isKeygen || _isSignRequest || _isExchange)
+              _buildFooter(context, accent),
 
             // Completed signature output (sign-request only).
             if (_isSignRequest &&
@@ -319,6 +349,44 @@ class _MessageCard extends StatelessWidget {
               _buildSignatureResult(context, accent),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildExchangeDetails(BuildContext context, Color accent) {
+    final theme = Theme.of(context);
+    final a = (_body['address_a'] ?? '').toString();
+    final b = (_body['address_b'] ?? '').toString();
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        children: [
+          _DetailRow(
+              icon: Icons.person_outline,
+              label: 'From',
+              value: _short(message.from, head: 8, tail: 6),
+              color: accent,
+              mono: true),
+          if (a.isNotEmpty)
+            _DetailRow(
+                icon: Icons.tag,
+                label: 'Address A',
+                value: _short(a, head: 8, tail: 6),
+                color: accent,
+                mono: true),
+          if (b.isNotEmpty)
+            _DetailRow(
+                icon: Icons.tag,
+                label: 'Address B',
+                value: _short(b, head: 8, tail: 6),
+                color: accent,
+                mono: true,
+                last: true),
+        ],
       ),
     );
   }
@@ -436,7 +504,12 @@ class _MessageCard extends StatelessWidget {
               child: CircularProgressIndicator(strokeWidth: 2.2),
             ),
             const SizedBox(width: 12),
-            Text(_isSignRequest ? 'Co-signing…' : 'Generating shared key…',
+            Text(
+                _isSignRequest
+                    ? 'Co-signing…'
+                    : _isExchange
+                        ? 'Adding exchange…'
+                        : 'Generating shared key…',
                 style: theme.textTheme.bodyMedium
                     ?.copyWith(fontWeight: FontWeight.w500)),
           ],
@@ -446,7 +519,12 @@ class _MessageCard extends StatelessWidget {
           children: [
             Icon(Icons.check_circle, color: Colors.green, size: 20),
             const SizedBox(width: 10),
-            Text(_isSignRequest ? 'Signature ready' : 'Shared key created',
+            Text(
+                _isSignRequest
+                    ? 'Signature ready'
+                    : _isExchange
+                        ? 'Exchange added'
+                        : 'Shared key created',
                 style: theme.textTheme.bodyMedium?.copyWith(
                     fontWeight: FontWeight.w600, color: Colors.green)),
           ],
@@ -469,9 +547,18 @@ class _MessageCard extends StatelessWidget {
             const SizedBox(width: 8),
             FilledButton.icon(
               onPressed: onAccept,
-              icon: Icon(_isSignRequest ? Icons.draw_outlined : Icons.check,
+              icon: Icon(
+                  _isSignRequest
+                      ? Icons.draw_outlined
+                      : _isExchange
+                          ? Icons.swap_horiz_rounded
+                          : Icons.check,
                   size: 18),
-              label: Text(_isSignRequest ? 'Accept & Sign' : 'Accept & Generate'),
+              label: Text(_isSignRequest
+                  ? 'Accept & Sign'
+                  : _isExchange
+                      ? 'Accept'
+                      : 'Accept & Generate'),
             ),
           ],
         );

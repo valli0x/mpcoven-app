@@ -135,6 +135,7 @@ class _ExchangeCardState extends State<_ExchangeCard> {
   late final TextEditingController _bCtrl;
   late bool _editing;
   bool _saving = false;
+  bool _proposing = false;
 
   @override
   void initState() {
@@ -174,7 +175,33 @@ class _ExchangeCardState extends State<_ExchangeCard> {
 
   // ── View mode ──
   Widget _buildView(ThemeData theme) {
-    return Row(
+    final entry = widget.entry;
+    final hasAddrs = entry.addressA.isNotEmpty && entry.addressB.isNotEmpty;
+    final canPropose = entry.status == 'draft' && hasAddrs;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Partner + status header
+        Row(
+          children: [
+            if (entry.partner.isNotEmpty) ...[
+              Icon(Icons.person_outline,
+                  size: 15, color: theme.colorScheme.onSurfaceVariant),
+              const SizedBox(width: 6),
+              Text('with ${_short(entry.partner, head: 8, tail: 6)}',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                      fontFamily: 'monospace')),
+            ] else
+              Text('Not shared yet',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant)),
+            const Spacer(),
+            _statusChip(theme, entry.status),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
       children: [
         Expanded(
           child: Column(
@@ -216,7 +243,97 @@ class _ExchangeCardState extends State<_ExchangeCard> {
           ],
         ),
       ],
+        ),
+        if (canPropose) ...[
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: _proposing ? null : _propose,
+              icon: _proposing
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.send_outlined, size: 18),
+              label: const Text('Send to partner'),
+            ),
+          ),
+        ],
+      ],
     );
+  }
+
+  Widget _statusChip(ThemeData theme, String status) {
+    late Color c;
+    late String label;
+    switch (status) {
+      case 'proposed':
+        c = Colors.orange;
+        label = 'proposed';
+        break;
+      case 'accepted':
+        c = Colors.green;
+        label = 'accepted';
+        break;
+      default:
+        c = theme.colorScheme.onSurfaceVariant;
+        label = 'draft';
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: c.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(label,
+          style: TextStyle(
+              color: c, fontSize: 11, fontWeight: FontWeight.bold)),
+    );
+  }
+
+  Future<void> _propose() async {
+    final provider = context.read<AppProvider>();
+    final partners = provider.acceptedPartners;
+    if (partners.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Create a pair first to share an exchange')));
+      return;
+    }
+    String? partner = partners.first;
+    if (partners.length > 1) {
+      partner = await showModalBottomSheet<String>(
+        context: context,
+        builder: (ctx) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: Text('Send exchange to…',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+              for (final p in partners)
+                ListTile(
+                  leading: const Icon(Icons.person_outline),
+                  title: Text(_short(p, head: 10, tail: 8),
+                      style: const TextStyle(fontFamily: 'monospace')),
+                  onTap: () => Navigator.pop(ctx, p),
+                ),
+            ],
+          ),
+        ),
+      );
+    }
+    if (partner == null || !mounted) return;
+    setState(() => _proposing = true);
+    final ok = await provider.proposeExchange(widget.entry, partner);
+    if (!mounted) return;
+    setState(() => _proposing = false);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(ok ? 'Proposal sent' : 'Failed to send proposal'),
+      backgroundColor: ok ? Colors.green : Colors.red,
+    ));
   }
 
   Widget _addrRow(ThemeData theme, String addr) {

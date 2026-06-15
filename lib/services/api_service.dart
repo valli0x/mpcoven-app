@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
@@ -165,6 +166,7 @@ class ApiService {
       'POST',
       '/v1/keygen/ecdsa',
       body: request.toJson(),
+      timeout: const Duration(minutes: 5),
     );
     return KeygenResponse.fromJson(response);
   }
@@ -174,6 +176,7 @@ class ApiService {
       'POST',
       '/v1/keygen/frost',
       body: request.toJson(),
+      timeout: const Duration(minutes: 5),
     );
     return KeygenResponse.fromJson(response);
   }
@@ -224,11 +227,44 @@ class ApiService {
   }
 
   Future<ExchangeEntry> updateExchange(
-      String id, String addressA, String addressB) async {
+    String id,
+    String addressA,
+    String addressB, {
+    String? partner,
+    String? status,
+  }) async {
     final response = await _makeRequest(
       'POST',
       '/v1/exchanges/update',
-      body: {'id': id, 'address_a': addressA, 'address_b': addressB},
+      body: {
+        'id': id,
+        'address_a': addressA,
+        'address_b': addressB,
+        if (partner != null && partner.isNotEmpty) 'partner': partner,
+        if (status != null && status.isNotEmpty) 'status': status,
+      },
+    );
+    return ExchangeEntry.fromJson(response);
+  }
+
+  /// Create-or-replace an exchange by id (acceptor imports a proposal).
+  Future<ExchangeEntry> upsertExchange({
+    required String id,
+    required String addressA,
+    required String addressB,
+    required String partner,
+    required String status,
+  }) async {
+    final response = await _makeRequest(
+      'POST',
+      '/v1/exchanges/upsert',
+      body: {
+        'id': id,
+        'address_a': addressA,
+        'address_b': addressB,
+        'partner': partner,
+        'status': status,
+      },
     );
     return ExchangeEntry.fromJson(response);
   }
@@ -328,6 +364,7 @@ class ApiService {
         if (amount != null && amount.isNotEmpty) 'amount': amount,
         if (txData != null && txData.isNotEmpty) 'tx_data': txData,
       },
+      timeout: const Duration(minutes: 5),
     );
     return IncompleteSignatureResponse.fromJson(response);
   }
@@ -380,6 +417,7 @@ class ApiService {
       'POST',
       '/v1/incomplete-signature/accept',
       body: body,
+      timeout: const Duration(minutes: 5),
     );
     return IncompleteSignatureResponse.fromJson(response);
   }
@@ -392,6 +430,9 @@ class ApiService {
     Map<String, dynamic>? body,
     bool useServer = false,
     bool auth = false,
+    // Default guards against a stuck/stale connection hanging the UI forever.
+    // MPC-heavy endpoints (keygen, co-sign) pass a longer timeout below.
+    Duration timeout = const Duration(seconds: 30),
   }) async {
     final base = useServer ? (serverUrl ?? baseUrl) : baseUrl;
     final uri = Uri.parse('$base$endpoint');
@@ -408,14 +449,16 @@ class ApiService {
       http.Response response;
       switch (method) {
         case 'POST':
-          response = await _client.post(
-            uri,
-            headers: headers,
-            body: body != null ? jsonEncode(body) : null,
-          );
+          response = await _client
+              .post(
+                uri,
+                headers: headers,
+                body: body != null ? jsonEncode(body) : null,
+              )
+              .timeout(timeout);
           break;
         case 'GET':
-          response = await _client.get(uri, headers: headers);
+          response = await _client.get(uri, headers: headers).timeout(timeout);
           break;
         default:
           throw ApiError(message: 'Unsupported HTTP method: $method');
@@ -449,6 +492,8 @@ class ApiService {
         }
         throw ApiError(message: errorMessage, statusCode: response.statusCode);
       }
+    } on TimeoutException {
+      throw ApiError(message: 'Request timed out — check your connection and try again.');
     } on SocketException catch (e) {
       throw ApiError(message: 'Network error: ${e.message}');
     } on FormatException catch (e) {
