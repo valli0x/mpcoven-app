@@ -188,10 +188,15 @@ class _ExchangeCardState extends State<_ExchangeCard> {
               Icon(Icons.person_outline,
                   size: 15, color: theme.colorScheme.onSurfaceVariant),
               const SizedBox(width: 6),
-              Text('with ${_short(entry.partner, head: 8, tail: 6)}',
-                  style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                      fontFamily: 'monospace')),
+              Builder(builder: (context) {
+                final alias =
+                    context.watch<AppProvider>().aliasFor(entry.partner);
+                return Text(
+                    'with ${alias ?? _short(entry.partner, head: 8, tail: 6)}',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                        fontFamily: alias != null ? null : 'monospace'));
+              }),
             ] else
               Text('Not shared yet',
                   style: theme.textTheme.labelSmall?.copyWith(
@@ -362,9 +367,26 @@ class _ExchangeCardState extends State<_ExchangeCard> {
             ),
             const SizedBox(width: 10),
             Flexible(
-              child: Text(_short(addr, head: 10, tail: 8),
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                      fontFamily: 'monospace', fontWeight: FontWeight.w500)),
+              child: Builder(builder: (context) {
+                final alias = context.watch<AppProvider>().aliasFor(addr);
+                if (alias != null) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(alias,
+                          style: theme.textTheme.bodyMedium
+                              ?.copyWith(fontWeight: FontWeight.w600)),
+                      Text(_short(addr, head: 8, tail: 6),
+                          style: theme.textTheme.labelSmall?.copyWith(
+                              fontFamily: 'monospace',
+                              color: theme.colorScheme.onSurfaceVariant)),
+                    ],
+                  );
+                }
+                return Text(_short(addr, head: 10, tail: 8),
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                        fontFamily: 'monospace', fontWeight: FontWeight.w500));
+              }),
             ),
             // Copy sits right next to the address (not pushed to the far edge).
             IconButton(

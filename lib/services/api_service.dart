@@ -376,6 +376,26 @@ class ApiService {
         body: {'hash': hash, 'signature': signature});
   }
 
+  // ── Aliases / contacts (client) ──
+
+  Future<Map<String, String>> getAliases() async {
+    final response = await _makeRequest('GET', '/v1/aliases/list');
+    final m = response['aliases'];
+    if (m is Map) {
+      return m.map((k, v) => MapEntry(k.toString(), v.toString()));
+    }
+    return {};
+  }
+
+  Future<void> setAlias(String address, String name) async {
+    await _makeRequest('POST', '/v1/aliases/set',
+        body: {'address': address, 'name': name});
+  }
+
+  Future<void> deleteAlias(String address) async {
+    await _makeRequest('POST', '/v1/aliases/delete', body: {'address': address});
+  }
+
   // ── Co-sign history (client) ──
 
   Future<List<CosignEvent>> getCosignHistory() async {

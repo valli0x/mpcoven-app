@@ -5,6 +5,7 @@ import '../models/keygen_models.dart';
 import '../providers/keygen_provider.dart';
 import '../widgets/address_balance.dart';
 import 'balance_screen.dart';
+import 'contacts_screen.dart';
 import 'history_screen.dart';
 import 'notifications_screen.dart';
 import 'tx_screen.dart';
@@ -125,6 +126,13 @@ class _AccountsScreenState extends State<AccountsScreen> {
               snap: true,
               actions: [
                 _NotificationsBell(messageCount: provider.messages.length),
+                IconButton(
+                  icon: const Icon(Icons.contacts_outlined),
+                  tooltip: 'Contacts',
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const ContactsScreen()),
+                  ),
+                ),
                 IconButton(
                   icon: const Icon(Icons.history),
                   tooltip: 'Activity',
@@ -317,10 +325,40 @@ class _PartnerGroup extends StatefulWidget {
 class _PartnerGroupState extends State<_PartnerGroup> {
   late bool _expanded = widget.initiallyExpanded;
 
+  Future<void> _renamePartner(
+      BuildContext context, String address, String current) async {
+    final ctrl = TextEditingController(text: current);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Name this partner'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(
+              labelText: 'Name', hintText: 'e.g. Alice'),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Save')),
+        ],
+      ),
+    );
+    if (ok == true && context.mounted) {
+      await context.read<AppProvider>().setAlias(address, ctrl.text.trim());
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final grad = _avatarGradient(widget.partner);
+    final partnerAddr = _withHex(widget.partner);
+    final alias = context.watch<AppProvider>().aliasFor(partnerAddr);
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
@@ -356,20 +394,41 @@ class _PartnerGroupState extends State<_PartnerGroup> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            'Partner · Ethereum',
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
+                          Row(
+                            children: [
+                              Text(
+                                alias != null ? 'Partner' : 'Partner · Ethereum',
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              InkWell(
+                                onTap: () => _renamePartner(context, partnerAddr,
+                                    alias ?? ''),
+                                child: Icon(Icons.edit_outlined,
+                                    size: 13,
+                                    color: theme.colorScheme.primary
+                                        .withOpacity(0.8)),
+                              ),
+                            ],
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            _short(_withHex(widget.partner), head: 10, tail: 8),
+                            alias ?? _short(partnerAddr, head: 10, tail: 8),
                             style: theme.textTheme.titleSmall?.copyWith(
-                              fontFamily: 'monospace',
+                              fontFamily: alias != null ? null : 'monospace',
                               fontWeight: FontWeight.w600,
                             ),
                           ),
+                          if (alias != null)
+                            Text(
+                              _short(partnerAddr, head: 10, tail: 8),
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                fontFamily: 'monospace',
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
                         ],
                       ),
                     ),

@@ -207,6 +207,45 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
+  // ── Aliases / contacts ──
+
+  Map<String, String> _aliases = {}; // lowercased address -> name
+  Map<String, String> get aliases => Map.unmodifiable(_aliases);
+
+  /// Alias for an address, or null if none.
+  String? aliasFor(String address) {
+    final a = address.trim().toLowerCase();
+    final n = _aliases[a];
+    return (n != null && n.isNotEmpty) ? n : null;
+  }
+
+  Future<void> loadAliases() async {
+    try {
+      _aliases = await _apiService.getAliases();
+      notifyListeners();
+    } catch (e) {
+      _handleAuthError(e);
+    }
+  }
+
+  Future<void> setAlias(String address, String name) async {
+    try {
+      await _apiService.setAlias(address.trim(), name.trim());
+      await loadAliases();
+    } catch (e) {
+      _handleAuthError(e);
+    }
+  }
+
+  Future<void> removeAlias(String address) async {
+    try {
+      await _apiService.deleteAlias(address.trim());
+      await loadAliases();
+    } catch (e) {
+      _handleAuthError(e);
+    }
+  }
+
   // ── Co-sign history ──
 
   List<CosignEvent> _cosignHistory = [];
@@ -423,6 +462,7 @@ class AppProvider extends ChangeNotifier {
       _authToken = result.token;
       await _persistSession(result.token, result.address);
       _startPolling();
+      loadAliases();
     }
     return result;
   }
@@ -492,6 +532,7 @@ class AppProvider extends ChangeNotifier {
       }
 
       _startPolling();
+      loadAliases();
       _isRestoring = false;
       notifyListeners();
       return true;
