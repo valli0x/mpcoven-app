@@ -263,24 +263,12 @@ class _ExchangeCardState extends State<_ExchangeCard> {
           ),
           const SizedBox(width: 10),
           Flexible(
-            child: Text(addrAlias ?? _short(addr, head: 10, tail: 8),
+            child: SelectableText(addrAlias ?? _short(addr, head: 10, tail: 8),
                 style: theme.textTheme.bodyMedium?.copyWith(
                     fontFamily: addrAlias != null ? null : 'monospace',
                     fontWeight: FontWeight.w500)),
           ),
-          IconButton(
-            icon: Icon(Icons.copy_rounded,
-                size: 16, color: color.withValues(alpha: 0.8)),
-            visualDensity: VisualDensity.compact,
-            constraints: const BoxConstraints(),
-            padding: const EdgeInsets.only(left: 8, right: 4),
-            onPressed: () {
-              Clipboard.setData(ClipboardData(text: addr));
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Address copied')),
-              );
-            },
-          ),
+          _copyBtn(theme, color, addr, 'Address copied'),
           const Spacer(),
         ]),
         // Partner of this escrow + per-side status.
@@ -301,17 +289,23 @@ class _ExchangeCardState extends State<_ExchangeCard> {
                   ),
                 ]),
               )
-            else if (partner.isNotEmpty)
+            else if (partner.isNotEmpty) ...[
+              Text('partner ',
+                  style: theme.textTheme.labelSmall
+                      ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
               Flexible(
-                child: Text(
-                    'partner ${provider.aliasFor(partner) ?? _short(partner, head: 6, tail: 4)}',
-                    overflow: TextOverflow.ellipsis,
+                child: SelectableText(
+                    provider.aliasFor(partner) ??
+                        _short(partner, head: 6, tail: 4),
                     style: theme.textTheme.labelSmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w600,
                         fontFamily: provider.aliasFor(partner) != null
                             ? null
                             : 'monospace')),
               ),
+              _copyBtn(theme, color, partner, 'Partner copied', size: 13),
+            ],
             const SizedBox(width: 8),
             _statusChip(theme, status),
           ]),
@@ -322,6 +316,24 @@ class _ExchangeCardState extends State<_ExchangeCard> {
               AddressBalance(address: addr, accent: color, autoRefresh: true),
         ),
       ],
+    );
+  }
+
+  Widget _copyBtn(ThemeData theme, Color color, String text, String toast,
+      {double size = 16}) {
+    return InkWell(
+      onTap: () {
+        Clipboard.setData(ClipboardData(text: text));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(toast)),
+        );
+      },
+      borderRadius: BorderRadius.circular(6),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        child: Icon(Icons.copy_rounded,
+            size: size, color: color.withValues(alpha: 0.8)),
+      ),
     );
   }
 

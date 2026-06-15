@@ -76,7 +76,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       Icon(Icons.security_rounded, size: 72, color: theme.colorScheme.primary),
                       const SizedBox(height: 16),
                       Text(
-                        '2-of-2 MPC Wallet',
+                        'MPC Wallet',
                         style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
                         textAlign: TextAlign.center,
                       ),
