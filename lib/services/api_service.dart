@@ -230,8 +230,10 @@ class ApiService {
     String id,
     String addressA,
     String addressB, {
-    String? partner,
-    String? status,
+    String? partnerA,
+    String? statusA,
+    String? partnerB,
+    String? statusB,
   }) async {
     final response = await _makeRequest(
       'POST',
@@ -240,8 +242,10 @@ class ApiService {
         'id': id,
         'address_a': addressA,
         'address_b': addressB,
-        if (partner != null && partner.isNotEmpty) 'partner': partner,
-        if (status != null && status.isNotEmpty) 'status': status,
+        if (partnerA != null && partnerA.isNotEmpty) 'partner_a': partnerA,
+        if (statusA != null && statusA.isNotEmpty) 'status_a': statusA,
+        if (partnerB != null && partnerB.isNotEmpty) 'partner_b': partnerB,
+        if (statusB != null && statusB.isNotEmpty) 'status_b': statusB,
       },
     );
     return ExchangeEntry.fromJson(response);
@@ -251,9 +255,11 @@ class ApiService {
   Future<ExchangeEntry> upsertExchange({
     required String id,
     required String addressA,
+    required String partnerA,
+    required String statusA,
     required String addressB,
-    required String partner,
-    required String status,
+    required String partnerB,
+    required String statusB,
   }) async {
     final response = await _makeRequest(
       'POST',
@@ -261,9 +267,11 @@ class ApiService {
       body: {
         'id': id,
         'address_a': addressA,
+        'partner_a': partnerA,
+        'status_a': statusA,
         'address_b': addressB,
-        'partner': partner,
-        'status': status,
+        'partner_b': partnerB,
+        'status_b': statusB,
       },
     );
     return ExchangeEntry.fromJson(response);

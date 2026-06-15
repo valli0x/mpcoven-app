@@ -108,12 +108,117 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
-  /// Save addresses into an existing exchange.
+  /// The escrow account stored locally for [address], or null. This is how we
+  /// validate that an exchange address is a real escrow account of ours, and
+  /// how we derive its partner.
+  AccountMeta? escrowAccountFor(String address) {
+    final a = address.trim().toLowerCase();
+    for (final acc in _accounts) {
+      if (acc.address.toLowerCase() == a) return acc;
+    }
+    return null;
+  }
+
+  /// Partner (ETH address) of the escrow account at [address], from MY accounts.
+  String escrowPartnerAddress(String address) {
+    final acc = escrowAccountFor(address);
+    if (acc == null) return '';
+    final other = (acc.pairOther ?? '').trim();
+    if (other.isEmpty) return '';
+    return other.startsWith('0x') ? other : '0x$other';
+  }
+
+  /// Save addresses; derive each side's partner from our escrow accounts.
   Future<bool> updateExchange(
       String id, String addressA, String addressB) async {
     try {
-      await _apiService.updateExchange(id, addressA.trim(), addressB.trim());
+      await _apiService.updateExchange(
+        id,
+        addressA.trim(),
+        addressB.trim(),
+        partnerA: escrowPartnerAddress(addressA),
+        partnerB: escrowPartnerAddress(addressB),
+      );
       await loadExchanges();
+      return true;
+    } catch (e) {
+      _handleAuthError(e);
+      return false;
+    }
+  }
+
+  /// Invite the partner(s) involved in an exchange (per side). Sends a proposal
+  /// to each distinct partner and marks that side "invited".
+  Future<bool> proposeExchange(ExchangeEntry e) async {
+    final sides = <String, String>{}; // partner -> side label (for status)
+    final pa = escrowPartnerAddress(e.addressA);
+    final pb = escrowPartnerAddress(e.addressB);
+    if (pa.isNotEmpty && e.statusA != 'accepted') sides[pa] = 'a';
+    if (pb.isNotEmpty && e.statusB != 'accepted') sides[pb] = 'b';
+    if (sides.isEmpty) return false;
+    try {
+      for (final partner in sides.keys) {
+        final pairId = findPairIdWith(partner);
+        if (pairId == null) continue;
+        await _apiService.sendMailboxMessage(
+          to: partner,
+          pairId: pairId,
+          type: 'exchange-proposal',
+          body: {
+            'id': e.id,
+            'address_a': e.addressA,
+            'address_b': e.addressB,
+            'initiator': _authAddress,
+          },
+        );
+      }
+      await _apiService.updateExchange(e.id, e.addressA, e.addressB,
+          statusA: pa.isNotEmpty ? 'invited' : null,
+          statusB: pb.isNotEmpty ? 'invited' : null);
+      await loadExchanges();
+      return true;
+    } catch (err) {
+      _handleAuthError(err);
+      return false;
+    }
+  }
+
+  /// Acceptor: import a proposed exchange. The side(s) where WE are the partner
+  /// (i.e. our escrow account is shared with the initiator) are marked accepted.
+  Future<bool> acceptExchangeProposal(MailboxMessage message) async {
+    final body = message.body;
+    if (body is! Map) return false;
+    final id = (body['id'] ?? '').toString();
+    if (id.isEmpty) return false;
+    final aAddr = (body['address_a'] ?? '').toString();
+    final bAddr = (body['address_b'] ?? '').toString();
+    final initiator = (body['initiator'] ?? message.from).toString();
+    try {
+      // Our partner for each escrow = the initiator (we share that account).
+      await _apiService.upsertExchange(
+        id: id,
+        addressA: aAddr,
+        partnerA: escrowAccountFor(aAddr) != null ? initiator : '',
+        statusA: escrowAccountFor(aAddr) != null ? 'accepted' : '',
+        addressB: bAddr,
+        partnerB: escrowAccountFor(bAddr) != null ? initiator : '',
+        statusB: escrowAccountFor(bAddr) != null ? 'accepted' : '',
+      );
+      await ackMessage(message.id);
+      await refreshMessages();
+      await loadExchanges();
+      // Confirm back so the initiator flips our side(s) to accepted.
+      final pairId = findPairIdWith(message.from);
+      if (pairId != null) {
+        try {
+          await _apiService.sendMailboxMessage(
+            to: message.from,
+            pairId: pairId,
+            type: 'exchange-accepted',
+            body: {'id': id, 'partner': _authAddress},
+          );
+        } catch (_) {}
+      }
       return true;
     } catch (e) {
       _handleAuthError(e);
@@ -127,83 +232,6 @@ class AppProvider extends ChangeNotifier {
       await loadExchanges();
     } catch (e) {
       _handleAuthError(e);
-    }
-  }
-
-  /// Accepted-pair partner addresses (for the exchange-proposal target picker).
-  List<String> get acceptedPartners {
-    final out = <String>{};
-    final pairs = _pendingPairs;
-    if (pairs != null && _authAddress != null) {
-      final me = _authAddress!.toLowerCase();
-      for (final p in [...pairs.incoming, ...pairs.outgoing]) {
-        if (p.status != 'accepted') continue;
-        final other = p.initiator.toLowerCase() == me ? p.partner : p.initiator;
-        out.add(other);
-      }
-    }
-    return out.toList();
-  }
-
-  /// Initiator: mark the exchange proposed to [partner] and notify them.
-  Future<bool> proposeExchange(ExchangeEntry e, String partner) async {
-    final pairId = findPairIdWith(partner);
-    if (pairId == null) return false;
-    try {
-      await _apiService.updateExchange(e.id, e.addressA, e.addressB,
-          partner: partner, status: 'proposed');
-      await _apiService.sendMailboxMessage(
-        to: partner,
-        pairId: pairId,
-        type: 'exchange-proposal',
-        body: {
-          'id': e.id,
-          'address_a': e.addressA,
-          'address_b': e.addressB,
-          'initiator': _authAddress,
-        },
-      );
-      await loadExchanges();
-      return true;
-    } catch (err) {
-      _handleAuthError(err);
-      return false;
-    }
-  }
-
-  /// Acceptor: import a proposed exchange (status accepted) and confirm back.
-  Future<bool> acceptExchangeProposal(MailboxMessage message) async {
-    final body = message.body;
-    if (body is! Map) return false;
-    final id = (body['id'] ?? '').toString();
-    if (id.isEmpty) return false;
-    try {
-      await _apiService.upsertExchange(
-        id: id,
-        addressA: (body['address_a'] ?? '').toString(),
-        addressB: (body['address_b'] ?? '').toString(),
-        partner: message.from,
-        status: 'accepted',
-      );
-      await ackMessage(message.id);
-      await refreshMessages();
-      await loadExchanges();
-      // Confirm back so the initiator flips to accepted.
-      final pairId = findPairIdWith(message.from);
-      if (pairId != null) {
-        try {
-          await _apiService.sendMailboxMessage(
-            to: message.from,
-            pairId: pairId,
-            type: 'exchange-accepted',
-            body: {'id': id},
-          );
-        } catch (_) {}
-      }
-      return true;
-    } catch (e) {
-      _handleAuthError(e);
-      return false;
     }
   }
 
@@ -625,7 +653,8 @@ class AppProvider extends ChangeNotifier {
         // Partner accepted our exchange — flip the local entry to accepted.
         final b = m.body;
         final id = (b is Map ? b['id'] : null)?.toString();
-        if (id != null) {
+        final who = (b is Map ? b['partner'] : null)?.toString();
+        if (id != null && who != null) {
           ExchangeEntry? ex;
           for (final e in _exchanges) {
             if (e.id == id) {
@@ -634,11 +663,20 @@ class AppProvider extends ChangeNotifier {
             }
           }
           if (ex != null) {
-            try {
-              await _apiService.updateExchange(id, ex.addressA, ex.addressB,
-                  status: 'accepted');
-              await loadExchanges();
-            } catch (_) {}
+            // Flip the side whose escrow partner is the accepting participant.
+            final lower = who.toLowerCase();
+            final flipA =
+                escrowPartnerAddress(ex.addressA).toLowerCase() == lower;
+            final flipB =
+                escrowPartnerAddress(ex.addressB).toLowerCase() == lower;
+            if (flipA || flipB) {
+              try {
+                await _apiService.updateExchange(id, ex.addressA, ex.addressB,
+                    statusA: flipA ? 'accepted' : null,
+                    statusB: flipB ? 'accepted' : null);
+                await loadExchanges();
+              } catch (_) {}
+            }
           }
         }
         toAck.add(m.id);

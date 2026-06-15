@@ -389,36 +389,45 @@ class CosignEvent {
 /// Local for now; swap logic will be added later.
 class ExchangeEntry {
   final String id;
+  // Each side is an escrow account with its OWN partner + invite status.
   final String addressA;
+  final String partnerA; // counterpart of escrow A
+  final String statusA; // '' | invited | accepted
   final String addressB;
-  final String partner; // ETH address of the other participant
-  final String status; // draft | proposed | accepted
+  final String partnerB;
+  final String statusB;
   final int createdAt; // epoch ms
 
   ExchangeEntry({
     required this.id,
     required this.addressA,
+    this.partnerA = '',
+    this.statusA = '',
     required this.addressB,
-    this.partner = '',
-    this.status = 'draft',
+    this.partnerB = '',
+    this.statusB = '',
     required this.createdAt,
   });
 
   Map<String, dynamic> toJson() => {
         'id': id,
         'address_a': addressA,
+        'partner_a': partnerA,
+        'status_a': statusA,
         'address_b': addressB,
-        'partner': partner,
-        'status': status,
+        'partner_b': partnerB,
+        'status_b': statusB,
         'created_at': createdAt,
       };
 
   factory ExchangeEntry.fromJson(Map<String, dynamic> json) => ExchangeEntry(
         id: json['id'] as String,
         addressA: json['address_a'] as String? ?? '',
+        partnerA: json['partner_a'] as String? ?? '',
+        statusA: json['status_a'] as String? ?? '',
         addressB: json['address_b'] as String? ?? '',
-        partner: json['partner'] as String? ?? '',
-        status: json['status'] as String? ?? 'draft',
+        partnerB: json['partner_b'] as String? ?? '',
+        statusB: json['status_b'] as String? ?? '',
         createdAt: json['created_at'] as int? ?? 0,
       );
 }

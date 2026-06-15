@@ -122,6 +122,7 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
   }
 }
 
+
 class _ExchangeCard extends StatefulWidget {
   final ExchangeEntry entry;
   const _ExchangeCard({super.key, required this.entry});
@@ -131,26 +132,20 @@ class _ExchangeCard extends StatefulWidget {
 }
 
 class _ExchangeCardState extends State<_ExchangeCard> {
-  late final TextEditingController _aCtrl;
-  late final TextEditingController _bCtrl;
   late bool _editing;
   bool _saving = false;
   bool _proposing = false;
+  String? _selA; // selected escrow address for side A
+  String? _selB;
+
+  ExchangeEntry get entry => widget.entry;
 
   @override
   void initState() {
     super.initState();
-    _aCtrl = TextEditingController(text: widget.entry.addressA);
-    _bCtrl = TextEditingController(text: widget.entry.addressB);
-    // New drafts (both empty) open straight in edit mode.
-    _editing = widget.entry.addressA.isEmpty && widget.entry.addressB.isEmpty;
-  }
-
-  @override
-  void dispose() {
-    _aCtrl.dispose();
-    _bCtrl.dispose();
-    super.dispose();
+    _selA = entry.addressA.isEmpty ? null : entry.addressA;
+    _selB = entry.addressB.isEmpty ? null : entry.addressB;
+    _editing = entry.addressA.isEmpty && entry.addressB.isEmpty;
   }
 
   @override
@@ -159,8 +154,6 @@ class _ExchangeCardState extends State<_ExchangeCard> {
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
-        // Translucent surface so the app gradient tints the card, matching the
-        // keygen/balance cards (instead of an opaque near-black panel).
         color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
@@ -175,81 +168,54 @@ class _ExchangeCardState extends State<_ExchangeCard> {
 
   // ── View mode ──
   Widget _buildView(ThemeData theme) {
-    final entry = widget.entry;
-    final hasAddrs = entry.addressA.isNotEmpty && entry.addressB.isNotEmpty;
-    final canPropose = entry.status == 'draft' && hasAddrs;
+    final provider = context.watch<AppProvider>();
+    final pA = provider.escrowPartnerAddress(entry.addressA);
+    final pB = provider.escrowPartnerAddress(entry.addressB);
+    final canInvite = (pA.isNotEmpty && entry.statusA != 'accepted') ||
+        (pB.isNotEmpty && entry.statusB != 'accepted');
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Partner + status header
         Row(
           children: [
-            if (entry.partner.isNotEmpty) ...[
-              Icon(Icons.person_outline,
-                  size: 15, color: theme.colorScheme.onSurfaceVariant),
-              const SizedBox(width: 6),
-              Builder(builder: (context) {
-                final alias =
-                    context.watch<AppProvider>().aliasFor(entry.partner);
-                return Text(
-                    'with ${alias ?? _short(entry.partner, head: 8, tail: 6)}',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                        fontFamily: alias != null ? null : 'monospace'));
-              }),
-            ] else
-              Text('Not shared yet',
-                  style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant)),
-            const Spacer(),
-            _statusChip(theme, entry.status),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Row(
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _addrRow(theme, widget.entry.addressA),
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: Row(
-                  children: [
-                    Icon(Icons.swap_vert_rounded,
-                        size: 18, color: theme.colorScheme.onSurfaceVariant),
-                    const SizedBox(width: 6),
-                    Text('exchange',
-                        style: theme.textTheme.labelSmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant)),
-                  ],
-                ),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _sideRow(theme, provider, entry.addressA, pA, entry.statusA),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Row(children: [
+                      Icon(Icons.swap_vert_rounded,
+                          size: 18, color: theme.colorScheme.onSurfaceVariant),
+                      const SizedBox(width: 6),
+                      Text('exchange',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant)),
+                    ]),
+                  ),
+                  _sideRow(theme, provider, entry.addressB, pB, entry.statusB),
+                ],
               ),
-              _addrRow(theme, widget.entry.addressB),
-            ],
-          ),
-        ),
-        Column(
-          children: [
-            IconButton(
-              icon: Icon(Icons.edit_outlined,
-                  size: 19, color: theme.colorScheme.primary),
-              onPressed: () => setState(() => _editing = true),
-              tooltip: 'Edit',
             ),
-            IconButton(
-              icon: Icon(Icons.delete_outline,
-                  size: 19, color: theme.colorScheme.error),
-              onPressed: () =>
-                  context.read<AppProvider>().removeExchange(widget.entry.id),
-              tooltip: 'Delete',
-            ),
+            Column(children: [
+              IconButton(
+                icon: Icon(Icons.edit_outlined,
+                    size: 19, color: theme.colorScheme.primary),
+                onPressed: () => setState(() => _editing = true),
+                tooltip: 'Edit',
+              ),
+              IconButton(
+                icon: Icon(Icons.delete_outline,
+                    size: 19, color: theme.colorScheme.error),
+                onPressed: () => provider.removeExchange(entry.id),
+                tooltip: 'Delete',
+              ),
+            ]),
           ],
         ),
-      ],
-        ),
-        if (canPropose) ...[
+        if (canInvite) ...[
           const SizedBox(height: 10),
           SizedBox(
             width: double.infinity,
@@ -261,10 +227,100 @@ class _ExchangeCardState extends State<_ExchangeCard> {
                       height: 16,
                       child: CircularProgressIndicator(strokeWidth: 2))
                   : const Icon(Icons.send_outlined, size: 18),
-              label: const Text('Send to partner'),
+              label: const Text('Send invitations'),
             ),
           ),
         ],
+      ],
+    );
+  }
+
+  /// One escrow side: address + balance + its partner + per-side status.
+  Widget _sideRow(ThemeData theme, AppProvider provider, String addr,
+      String partner, String status) {
+    if (addr.isEmpty) {
+      return Text('(not set)',
+          style: theme.textTheme.bodySmall
+              ?.copyWith(color: theme.colorScheme.onSurfaceVariant));
+    }
+    final isEth = _looksEth(addr);
+    final color = isEth ? _kEth : _kBtc;
+    final addrAlias = provider.aliasFor(addr);
+    final isMine = provider.escrowAccountFor(addr) != null;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(children: [
+          Container(
+            padding: const EdgeInsets.all(7),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(isEth ? Icons.diamond_outlined : Icons.currency_bitcoin,
+                color: color, size: 18),
+          ),
+          const SizedBox(width: 10),
+          Flexible(
+            child: Text(addrAlias ?? _short(addr, head: 10, tail: 8),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                    fontFamily: addrAlias != null ? null : 'monospace',
+                    fontWeight: FontWeight.w500)),
+          ),
+          IconButton(
+            icon: Icon(Icons.copy_rounded,
+                size: 16, color: color.withValues(alpha: 0.8)),
+            visualDensity: VisualDensity.compact,
+            constraints: const BoxConstraints(),
+            padding: const EdgeInsets.only(left: 8, right: 4),
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: addr));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Address copied')),
+              );
+            },
+          ),
+          const Spacer(),
+        ]),
+        // Partner of this escrow + per-side status.
+        Padding(
+          padding: const EdgeInsets.only(left: 42, top: 2),
+          child: Row(children: [
+            if (!isMine)
+              Flexible(
+                child: Row(children: [
+                  Icon(Icons.warning_amber_rounded,
+                      size: 13, color: Colors.orange),
+                  const SizedBox(width: 4),
+                  Flexible(
+                    child: Text('not in your accounts',
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.labelSmall
+                            ?.copyWith(color: Colors.orange)),
+                  ),
+                ]),
+              )
+            else if (partner.isNotEmpty)
+              Flexible(
+                child: Text(
+                    'partner ${provider.aliasFor(partner) ?? _short(partner, head: 6, tail: 4)}',
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                        fontFamily: provider.aliasFor(partner) != null
+                            ? null
+                            : 'monospace')),
+              ),
+            const SizedBox(width: 8),
+            _statusChip(theme, status),
+          ]),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(left: 42, top: 2, bottom: 2),
+          child:
+              AddressBalance(address: addr, accent: color, autoRefresh: true),
+        ),
       ],
     );
   }
@@ -273,9 +329,9 @@ class _ExchangeCardState extends State<_ExchangeCard> {
     late Color c;
     late String label;
     switch (status) {
-      case 'proposed':
+      case 'invited':
         c = Colors.orange;
-        label = 'proposed';
+        label = 'invited';
         break;
       case 'accepted':
         c = Colors.green;
@@ -283,143 +339,52 @@ class _ExchangeCardState extends State<_ExchangeCard> {
         break;
       default:
         c = theme.colorScheme.onSurfaceVariant;
-        label = 'draft';
+        label = 'not invited';
     }
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
       decoration: BoxDecoration(
         color: c.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(label,
-          style: TextStyle(
-              color: c, fontSize: 11, fontWeight: FontWeight.bold)),
+          style: TextStyle(color: c, fontSize: 10, fontWeight: FontWeight.bold)),
     );
   }
 
   Future<void> _propose() async {
-    final provider = context.read<AppProvider>();
-    final partners = provider.acceptedPartners;
-    if (partners.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Create a pair first to share an exchange')));
-      return;
-    }
-    String? partner = partners.first;
-    if (partners.length > 1) {
-      partner = await showModalBottomSheet<String>(
-        context: context,
-        builder: (ctx) => SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Padding(
-                padding: EdgeInsets.all(16),
-                child: Text('Send exchange to…',
-                    style: TextStyle(fontWeight: FontWeight.bold)),
-              ),
-              for (final p in partners)
-                ListTile(
-                  leading: const Icon(Icons.person_outline),
-                  title: Text(_short(p, head: 10, tail: 8),
-                      style: const TextStyle(fontFamily: 'monospace')),
-                  onTap: () => Navigator.pop(ctx, p),
-                ),
-            ],
-          ),
-        ),
-      );
-    }
-    if (partner == null || !mounted) return;
     setState(() => _proposing = true);
-    final ok = await provider.proposeExchange(widget.entry, partner);
+    final ok = await context.read<AppProvider>().proposeExchange(entry);
     if (!mounted) return;
     setState(() => _proposing = false);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(ok ? 'Proposal sent' : 'Failed to send proposal'),
+      content: Text(ok ? 'Invitations sent' : 'Nothing to invite / no pair'),
       backgroundColor: ok ? Colors.green : Colors.red,
     ));
   }
 
-  Widget _addrRow(ThemeData theme, String addr) {
-    if (addr.isEmpty) {
-      return Text('(not set)',
-          style: theme.textTheme.bodySmall
-              ?.copyWith(color: theme.colorScheme.onSurfaceVariant));
-    }
-    final isEth = _looksEth(addr);
-    final color = isEth ? _kEth : _kBtc;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(7),
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.14),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(
-                  isEth ? Icons.diamond_outlined : Icons.currency_bitcoin,
-                  color: color,
-                  size: 18),
-            ),
-            const SizedBox(width: 10),
-            Flexible(
-              child: Builder(builder: (context) {
-                final alias = context.watch<AppProvider>().aliasFor(addr);
-                if (alias != null) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(alias,
-                          style: theme.textTheme.bodyMedium
-                              ?.copyWith(fontWeight: FontWeight.w600)),
-                      Text(_short(addr, head: 8, tail: 6),
-                          style: theme.textTheme.labelSmall?.copyWith(
-                              fontFamily: 'monospace',
-                              color: theme.colorScheme.onSurfaceVariant)),
-                    ],
-                  );
-                }
-                return Text(_short(addr, head: 10, tail: 8),
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                        fontFamily: 'monospace', fontWeight: FontWeight.w500));
-              }),
-            ),
-            // Copy sits right next to the address (not pushed to the far edge).
-            IconButton(
-              icon: Icon(Icons.copy_rounded,
-                  size: 16, color: color.withValues(alpha: 0.8)),
-              visualDensity: VisualDensity.compact,
-              constraints: const BoxConstraints(),
-              padding: const EdgeInsets.only(left: 8, right: 4),
-              tooltip: 'Copy address',
-              onPressed: () {
-                Clipboard.setData(ClipboardData(text: addr));
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Address copied')),
-                );
-              },
-            ),
-            const Spacer(),
-          ],
-        ),
-        Padding(
-          padding: const EdgeInsets.only(left: 42, top: 2, bottom: 2),
-          child: AddressBalance(
-              address: addr, accent: color, autoRefresh: true),
-        ),
-      ],
-    );
-  }
-
-  // ── Edit mode ──
+  // ── Edit mode (pick from MY escrow accounts only) ──
   Widget _buildEdit(ThemeData theme) {
-    InputDecoration deco(String label) => InputDecoration(
+    final accounts = context.watch<AppProvider>().accounts;
+
+    DropdownButtonFormField<String> picker(
+        String label, String? value, ValueChanged<String?> onChanged) {
+      // Include a legacy value not in accounts so it isn't silently dropped.
+      final items = <DropdownMenuItem<String>>[
+        for (final a in accounts)
+          DropdownMenuItem(
+            value: a.address,
+            child: Text('${a.network.toUpperCase()} #${a.index} · '
+                '${_short(a.address, head: 6, tail: 4)}'),
+          ),
+        if (value != null && !accounts.any((a) => a.address == value))
+          DropdownMenuItem(value: value, child: Text(_short(value))),
+      ];
+      return DropdownButtonFormField<String>(
+        initialValue: value,
+        isExpanded: true,
+        decoration: InputDecoration(
           labelText: label,
-          hintText: '0x… / bc1…',
           isDense: true,
           filled: true,
           fillColor:
@@ -428,31 +393,36 @@ class _ExchangeCardState extends State<_ExchangeCard> {
             borderRadius: BorderRadius.circular(12),
             borderSide: BorderSide.none,
           ),
-        );
+        ),
+        items: items,
+        onChanged: onChanged,
+      );
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        TextField(
-          controller: _aCtrl,
-          autofocus: true,
-          style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
-          decoration: deco('Address A'),
-        ),
+        if (accounts.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Text(
+                'No escrow accounts yet — generate keys first, then link them here.',
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: theme.colorScheme.error)),
+          ),
+        picker('Escrow A', _selA, (v) => setState(() => _selA = v)),
         const SizedBox(height: 10),
-        TextField(
-          controller: _bCtrl,
-          style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
-          decoration: deco('Address B'),
-        ),
+        picker('Escrow B', _selB, (v) => setState(() => _selB = v)),
+        const SizedBox(height: 6),
+        Text('Pick two of your escrow accounts. Each side\'s partner is taken '
+            'from that account.',
+            style: theme.textTheme.labelSmall
+                ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
         const SizedBox(height: 12),
         Row(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
-            TextButton(
-              onPressed: _saving ? null : _cancel,
-              child: const Text('Cancel'),
-            ),
+            TextButton(onPressed: _saving ? null : _cancel, child: const Text('Cancel')),
             const SizedBox(width: 8),
             FilledButton.icon(
               onPressed: _saving ? null : _save,
@@ -471,32 +441,35 @@ class _ExchangeCardState extends State<_ExchangeCard> {
   }
 
   void _cancel() {
-    final entry = widget.entry;
     final isEmptyDraft = entry.addressA.isEmpty && entry.addressB.isEmpty;
     if (isEmptyDraft) {
-      // Discard an untouched draft entirely.
       context.read<AppProvider>().removeExchange(entry.id);
       return;
     }
     setState(() {
-      _aCtrl.text = entry.addressA;
-      _bCtrl.text = entry.addressB;
+      _selA = entry.addressA.isEmpty ? null : entry.addressA;
+      _selB = entry.addressB.isEmpty ? null : entry.addressB;
       _editing = false;
     });
   }
 
   Future<void> _save() async {
-    final a = _aCtrl.text.trim();
-    final b = _bCtrl.text.trim();
+    final a = _selA ?? '';
+    final b = _selB ?? '';
     if (a.isEmpty || b.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter both addresses')),
+        const SnackBar(content: Text('Pick both escrow accounts')),
+      );
+      return;
+    }
+    if (a == b) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pick two different accounts')),
       );
       return;
     }
     setState(() => _saving = true);
-    final ok =
-        await context.read<AppProvider>().updateExchange(widget.entry.id, a, b);
+    final ok = await context.read<AppProvider>().updateExchange(entry.id, a, b);
     if (!mounted) return;
     setState(() {
       _saving = false;
