@@ -352,12 +352,17 @@ class AppProvider extends ChangeNotifier {
     required String toAddress,
     required BigInt amountBase,
     bool viaEscrow = false,
+    String? escrowIdOverride,
   }) async {
     try {
-      // Pollination id for the atomic swap = the pair id (one swap per pair).
+      // Pollination id for the atomic swap. Prefer an explicit id (e.g. the
+      // Exchange id, shared by both parties); else fall back to the pair id.
       final partner = _partnerAddressFor(account);
-      final escrowId =
-          viaEscrow ? (findPairIdWith(partner) ?? '') : '';
+      final escrowId = viaEscrow
+          ? ((escrowIdOverride != null && escrowIdOverride.isNotEmpty)
+              ? escrowIdOverride
+              : (findPairIdWith(partner) ?? ''))
+          : '';
       final pub = viaEscrow ? (account.publicKey) : '';
 
       final hashResp = await _apiService.createTxHash(

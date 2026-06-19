@@ -6,6 +6,7 @@ import '../providers/keygen_provider.dart';
 import '../widgets/address_balance.dart';
 import '../widgets/gradient_button.dart';
 import '../widgets/page_scaffold.dart';
+import 'tx_screen.dart';
 
 const _kEth = Color(0xFF627EEA);
 const _kBtc = Color(0xFFF7931A);
@@ -238,6 +239,19 @@ class _ExchangeCardState extends State<_ExchangeCard> {
             ),
           ),
         ],
+        // Once a side is accepted, you can run the atomic-swap withdrawal via
+        // escrow. Both parties do this; escrow releases each their own sig.
+        if (entry.statusA == 'accepted' || entry.statusB == 'accepted') ...[
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              icon: const Icon(Icons.account_balance_outlined, size: 18),
+              label: const Text('Withdraw via escrow (swap)'),
+              onPressed: () => _withdrawViaEscrow(provider),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -369,6 +383,62 @@ class _ExchangeCardState extends State<_ExchangeCard> {
       child: Text(label,
           style: TextStyle(color: c, fontSize: 10, fontWeight: FontWeight.bold)),
     );
+  }
+
+  /// Pick which escrow account in this exchange to withdraw from (the one the
+  /// other party funded for you), then open the tx screen with the escrow swap
+  /// pre-enabled and the shared pollination id = this exchange id.
+  Future<void> _withdrawViaEscrow(AppProvider provider) async {
+    final candidates = <AccountMeta>[];
+    for (final addr in [entry.addressA, entry.addressB]) {
+      final acc = provider.escrowAccountFor(addr);
+      if (acc != null && !candidates.any((c) => c.address == acc.address)) {
+        candidates.add(acc);
+      }
+    }
+    if (candidates.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Neither address is one of your escrow accounts')));
+      return;
+    }
+    AccountMeta account = candidates.first;
+    if (candidates.length > 1) {
+      final picked = await showModalBottomSheet<AccountMeta>(
+        context: context,
+        builder: (ctx) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: Text('Withdraw from which escrow?',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+              for (final a in candidates)
+                ListTile(
+                  leading: Icon(a.network == 'eth'
+                      ? Icons.diamond_outlined
+                      : Icons.currency_bitcoin),
+                  title: Text('${a.network.toUpperCase()} #${a.index}'),
+                  subtitle: Text(_short(a.address, head: 10, tail: 8),
+                      style: const TextStyle(fontFamily: 'monospace')),
+                  onTap: () => Navigator.pop(ctx, a),
+                ),
+            ],
+          ),
+        ),
+      );
+      if (picked == null || !mounted) return;
+      account = picked;
+    }
+    if (!mounted) return;
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => TxScreen(
+        account: account,
+        initialViaEscrow: true,
+        escrowId: entry.id,
+      ),
+    ));
   }
 
   Future<void> _propose() async {

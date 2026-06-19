@@ -13,7 +13,19 @@ import '../widgets/page_scaffold.dart';
 class TxScreen extends StatefulWidget {
   final AccountMeta account;
 
-  const TxScreen({super.key, required this.account});
+  /// Pre-check the escrow swap toggle (e.g. when launched from an Exchange).
+  final bool initialViaEscrow;
+
+  /// Shared pollination id for the swap (e.g. the Exchange id). Both sides must
+  /// use the same id. Falls back to the pair id inside the provider when empty.
+  final String? escrowId;
+
+  const TxScreen({
+    super.key,
+    required this.account,
+    this.initialViaEscrow = false,
+    this.escrowId,
+  });
 
   @override
   State<TxScreen> createState() => _TxScreenState();
@@ -28,6 +40,12 @@ class _TxScreenState extends State<TxScreen> {
   bool _sent = false;
   bool _viaEscrow = false;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _viaEscrow = widget.initialViaEscrow;
+  }
 
   @override
   void dispose() {
@@ -217,6 +235,7 @@ class _TxScreenState extends State<TxScreen> {
           toAddress: _toController.text.trim(),
           amountBase: base,
           viaEscrow: _viaEscrow,
+          escrowIdOverride: widget.escrowId,
         );
     if (!mounted) return;
     setState(() {
