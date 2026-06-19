@@ -466,6 +466,7 @@ class ApiService {
     String? to,
     String? amount,
     String? txData,
+    String? escrowId,
   }) async {
     final body = <String, dynamic>{
       'alg': alg,
@@ -478,6 +479,7 @@ class ApiService {
     if (to != null && to.isNotEmpty) body['to'] = to;
     if (amount != null && amount.isNotEmpty) body['amount'] = amount;
     if (txData != null && txData.isNotEmpty) body['tx_data'] = txData;
+    if (escrowId != null && escrowId.isNotEmpty) body['escrow_id'] = escrowId;
     final response = await _makeRequest(
       'POST',
       '/v1/incomplete-signature/accept',

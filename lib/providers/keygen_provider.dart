@@ -487,6 +487,7 @@ class AppProvider extends ChangeNotifier {
         to: to,
         amount: amount,
         txData: txData,
+        escrowId: escrowId,
       );
       await ackMessage(message.id);
       await refreshMessages();
