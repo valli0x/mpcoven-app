@@ -123,26 +123,31 @@ class _TxScreenState extends State<TxScreen> {
                   _resetSent();
                 },
               ),
-              const SizedBox(height: 12),
-              // Atomic-swap escrow toggle: the partner delivers the completed
-              // signature into the server escrow, released only against ours.
-              CheckboxListTile(
-                value: _viaEscrow,
-                onChanged: (v) => setState(() {
-                  _viaEscrow = v ?? false;
-                  _resetSent();
-                }),
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                controlAffinity: ListTileControlAffinity.leading,
-                title: const Text('Withdraw via escrow (atomic swap)'),
-                subtitle: Text(
-                    'Partner\'s signature goes to the escrow, not to you; '
-                    'released only when both sides have co-signed.',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant)),
-              ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
+              // Escrow swap is only entered from an accepted Exchange (which
+              // gives both sides a shared id + coordination). Here we just show
+              // a fixed banner — not a free-standing toggle in plain co-sign.
+              if (_viaEscrow) ...[
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: color.withValues(alpha: 0.3)),
+                  ),
+                  child: Row(children: [
+                    Icon(Icons.account_balance_outlined, size: 18, color: color),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                          'Atomic swap via escrow — your partner\'s signature '
+                          'goes to the escrow, released only against yours.',
+                          style: theme.textTheme.labelMedium),
+                    ),
+                  ]),
+                ),
+                const SizedBox(height: 12),
+              ],
               GradientButton(
                 text: _viaEscrow ? 'Send to escrow (swap)' : 'Send for co-signing',
                 icon: _viaEscrow
