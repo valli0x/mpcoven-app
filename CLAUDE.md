@@ -54,8 +54,9 @@ lib/
                            (auto-refresh hourly). withBackground:false (HomeScreen paints the gradient).
     notifications_screen.dart  cards for keygen-init (Accept & Generate) AND sign-request (Accept & Sign ->
                            shows complete signature). Pretty details, not raw JSON.
-    history_screen.dart    "Activity": co-sign/broadcast log from the Go client (/v1/cosign/history).
-                           Acceptor 'completed' rows with tx_data+signature get a "Send Transaction" button.
+    history_screen.dart    "Activity": co-sign/broadcast log (/v1/cosign/history). 'completed' rows with
+                           tx_data+signature get "Send Transaction"; 'escrow-await' rows get "Check escrow".
+    contacts_screen.dart   address book (aliases) — add/edit/delete; opened from the Accounts AppBar.
     settings_screen.dart   Client/Server URL, Force update, Reset all data
     balance/tx/withdrawal_screen.dart
                            tx_screen = "Send for co-signing" ONE button (creates hash+tx_data, notifies
@@ -93,6 +94,36 @@ A 2-of-2 transaction is signed jointly; broadcasting needs the full tx, so the p
 - Presignature is single-use: each `send`/`accept` triggers a BACKGROUND interactive re-presign on subject `<id>/rotate/<hash>`
   (per-hash so rounds never collide). Co-sign itself runs on `<id>/cosign/<hash>` (also per-hash — fixed the
   "filtered consumer not unique" hang). On rotation failure the consumed presig is DELETED (never silently reused).
+- **Signature returned to initiator**: after the acceptor completes, it sends a `sign-result` mailbox back; the
+  initiator's background poll calls `POST /v1/cosign/complete {hash,signature}` → its `sent` entry flips to
+  `completed` (it already stored tx_data) so EITHER party can broadcast from Activity.
+
+## Verify-what-you-sign (security — DON'T regress)
+- The acceptor must never blind-sign. Backend `acceptWithdrawalTx` REJECTS unless `keccak(tx_data)` == the hash being
+  signed ("refusing to sign: tx hash does not match tx_data"). So displayed ≠ signed is impossible at the crypto level.
+- The Notifications "Signature Request" card shows **Spending from** (which of YOUR accounts is drained) + **To/Amount
+  (verified)** decoded from `tx_data` via `POST /v1/tx/decode` (NOT the sender's claimed display fields), with a red
+  warning if the decoded values differ. Each co-sign authorizes ONE tx from ONE account; draining two accounts needs
+  two separate accepts — each is explicitly shown/verified. (TODO discussed: explicit confirm dialog + one-co-sign-per-swap guard.)
+
+## Escrow atomic swap (fair exchange, NO timebox yet)
+- Entered ONLY from an accepted Exchange ("Withdraw via escrow" → pick the escrow account → opens tx_screen with the
+  swap banner + `escrowId = exchange.id`). The plain co-sign screen has NO escrow toggle.
+- `startCoSign(viaEscrow:true)` carries `escrow_id` (=exchange id, the pollination id; both sides share it) + the
+  account `pub`. Records `initiator/escrow-await`.
+- Acceptor with `escrow_id`: instead of `sign-result`, DEPOSITS the completed sig into `POST /v1/escrow` under ITS OWN
+  pending withdrawal's `{pub,hash}` (the reciprocal) — escrow releases each side their own sig only when BOTH flowers
+  validate. Activity `escrow-await` → "Check escrow" (`POST /v1/escrow/check {id,pub}`) → on release `completeCosign`
+  → `completed` → Send Transaction. BOTH parties must run the withdrawal (each from the escrow the other funded).
+- Pollination id = exchange.id ⇒ multiple concurrent swaps OK. (Direct checkbox path used pairId = one-per-pair; now removed.)
+- NOT yet live-verified: whether server `validation.Validate` accepts the 65-byte SigEthereum format in pollination.
+
+## Exchange = shared object (per-side)
+- An Exchange links TWO escrow accounts; each side has its OWN partner (derived locally from accounts) + invite status.
+  Edit mode = paste/search YOUR escrow accounts only (validated). "Send invitations" → `exchange-proposal` to each
+  partner; partner accepts (Notifications) → `upsert` + `exchange-accepted` back → initiator flips that side to accepted.
+- Aliases/contacts: `client/aliases.go` (`/v1/aliases/{list,set,delete}`). Names show for partners (Accounts folders),
+  exchange partners/addresses. Contacts screen from the Accounts AppBar; provider `aliasFor/setAlias/removeAlias`.
 
 ## Delete model (user's explicit rules — NO "hidden" state)
 - "скрытых не должно быть либо удален либо есть" — there is NO hide concept. A pair either exists or is deleted.
@@ -101,7 +132,9 @@ A 2-of-2 transaction is signed jointly; broadcasting needs the full tx, so the p
   destroy the other party's key material ("нельзя чтобы первый мог удалять что то у второго это опасно").
 
 ## Backend message types (mailbox `type` field)
-`keygen-init` (shown), `sign-request` (shown — co-sign request w/ tx details + tx_data), `sign-result` (service — partner returns the completed signature to the initiator),
+`keygen-init` (shown), `sign-request` (shown — co-sign request w/ tx details + tx_data + optional escrow_id),
+`sign-result` (service — partner returns the completed signature to the initiator),
+`exchange-proposal` (shown — link 2 escrow accounts), `exchange-accepted` (service — partner confirmed a side),
 `keygen-cancel` (service), `pair-removed` (service). Session endpoints `/v1/session/{claim,cancel}`.
 
 ## Running & testing on macOS (two participants on one machine)

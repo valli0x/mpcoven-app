@@ -19,9 +19,18 @@ Targets **macOS desktop** and **web**.
 - **Accounts** — grouped into partner folders, searchable; view address as a QR code.
 - **Balances** — on-chain balance checks in human units (e.g. `0.011`, not wei),
   with live USD quotes.
-- **Transactions & withdrawals** — build, co-sign and broadcast.
-- **Exchange** — link two escrow addresses for a swap (business logic lives on
-  the Go client).
+- **MPC co-signing** — one-tap "Send for co-signing": creates the tx, notifies
+  the partner (Notifications → *Accept & Sign*), and broadcasts the exact signed
+  tx from **Activity**. Either party can broadcast (signature is returned both ways).
+- **Verify what you sign** — the acceptor never blind-signs: the backend refuses
+  unless `keccak(tx_data)` matches the hash, and the request card shows the
+  **decoded** From-account / To / Amount (red warning on any mismatch).
+- **Escrow atomic swap** — run from an accepted Exchange: each party's completed
+  signature is delivered to the server escrow and released only when both sides
+  have co-signed (fair exchange; pollination per Exchange id).
+- **Exchange** — shared object linking two escrow accounts (per-side partner +
+  invite status); propose → partner accepts → appears on both sides.
+- **Contacts** — name partners/addresses (aliases) shown everywhere instead of hex.
 - **Deletion model** — delete a pair and cascade its accounts on *your* client
   only; a participant can never destroy the other party's key material.
 
