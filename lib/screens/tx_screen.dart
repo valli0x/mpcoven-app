@@ -26,6 +26,7 @@ class _TxScreenState extends State<TxScreen> {
 
   bool _loading = false;
   bool _sent = false;
+  bool _viaEscrow = false;
   String? _error;
 
   @override
@@ -104,18 +105,42 @@ class _TxScreenState extends State<TxScreen> {
                   _resetSent();
                 },
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 12),
+              // Atomic-swap escrow toggle: the partner delivers the completed
+              // signature into the server escrow, released only against ours.
+              CheckboxListTile(
+                value: _viaEscrow,
+                onChanged: (v) => setState(() {
+                  _viaEscrow = v ?? false;
+                  _resetSent();
+                }),
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                title: const Text('Withdraw via escrow (atomic swap)'),
+                subtitle: Text(
+                    'Partner\'s signature goes to the escrow, not to you; '
+                    'released only when both sides have co-signed.',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant)),
+              ),
+              const SizedBox(height: 12),
               GradientButton(
-                text: 'Send for co-signing',
-                icon: Icons.handshake_outlined,
+                text: _viaEscrow ? 'Send to escrow (swap)' : 'Send for co-signing',
+                icon: _viaEscrow
+                    ? Icons.account_balance_outlined
+                    : Icons.handshake_outlined,
                 isLoading: _loading,
                 gradientColors: [color, color.withValues(alpha: 0.7)],
                 onPressed: _start,
               ),
               const SizedBox(height: 10),
               Text(
-                'The partner approves the signature in their Notifications and '
-                'broadcasts it from Activity. Track status in Activity.',
+                _viaEscrow
+                    ? 'Atomic swap: both parties must run this on the escrow the '
+                        'other funded. Track release in Activity → Check escrow.'
+                    : 'The partner approves the signature in their Notifications '
+                        'and broadcasts it from Activity. Track status in Activity.',
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodySmall
                     ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
@@ -191,6 +216,7 @@ class _TxScreenState extends State<TxScreen> {
           account: widget.account,
           toAddress: _toController.text.trim(),
           amountBase: base,
+          viaEscrow: _viaEscrow,
         );
     if (!mounted) return;
     setState(() {

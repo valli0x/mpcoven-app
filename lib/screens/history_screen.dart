@@ -124,10 +124,28 @@ class _EventCardState extends State<_EventCard> {
   // Either party can broadcast once they have both the completed signature and
   // the tx_data (acceptor gets both directly; initiator gets the signature back
   // via sign-result and already stored tx_data).
+  bool _checkingEscrow = false;
+
   bool get _canBroadcast =>
       event.status == 'completed' &&
       event.signature.isNotEmpty &&
       event.txData.isNotEmpty;
+
+  bool get _isEscrowAwait =>
+      event.status == 'escrow-await' && event.escrowId.isNotEmpty;
+
+  Future<void> _checkEscrow() async {
+    setState(() => _checkingEscrow = true);
+    final ok = await context.read<AppProvider>().checkEscrow(event);
+    if (!mounted) return;
+    setState(() => _checkingEscrow = false);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(ok
+          ? 'Released — ready to broadcast'
+          : 'Still pending (waiting for the counterparty)'),
+      backgroundColor: ok ? Colors.green : null,
+    ));
+  }
 
   Future<void> _broadcast() async {
     setState(() => _broadcasting = true);
@@ -166,6 +184,7 @@ class _EventCardState extends State<_EventCard> {
       case 'failed':
         return Colors.red;
       case 'sent':
+      case 'escrow-await':
         return Colors.orange;
       default:
         return Colors.grey;
@@ -176,6 +195,8 @@ class _EventCardState extends State<_EventCard> {
     switch (event.status) {
       case 'sent':
         return 'awaiting partner';
+      case 'escrow-await':
+        return 'in escrow';
       case 'completed':
         return 'completed';
       case 'broadcast':
@@ -278,6 +299,22 @@ class _EventCardState extends State<_EventCard> {
               Text(_time(),
                   style: theme.textTheme.labelSmall
                       ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+            ],
+            if (_isEscrowAwait) ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _checkingEscrow ? null : _checkEscrow,
+                  icon: _checkingEscrow
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.account_balance_outlined, size: 18),
+                  label: const Text('Check escrow'),
+                ),
+              ),
             ],
             if (_canBroadcast) ...[
               const SizedBox(height: 12),

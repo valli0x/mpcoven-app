@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -315,6 +316,7 @@ class AppProvider extends ChangeNotifier {
     required String amountBase,
     required String hashTx,
     String txData = '',
+    String escrowId = '',
   }) async {
     final partner = _partnerAddressFor(account);
     final pairId = findPairIdWith(partner);
@@ -334,6 +336,7 @@ class AppProvider extends ChangeNotifier {
           'amount': amountBase,
           'hash_tx': hashTx,
           'tx_data': txData,
+          if (escrowId.isNotEmpty) 'escrow_id': escrowId,
           'initiator': _authAddress,
         },
       );
@@ -348,8 +351,15 @@ class AppProvider extends ChangeNotifier {
     required AccountMeta account,
     required String toAddress,
     required BigInt amountBase,
+    bool viaEscrow = false,
   }) async {
     try {
+      // Pollination id for the atomic swap = the pair id (one swap per pair).
+      final partner = _partnerAddressFor(account);
+      final escrowId =
+          viaEscrow ? (findPairIdWith(partner) ?? '') : '';
+      final pub = viaEscrow ? (account.publicKey) : '';
+
       final hashResp = await _apiService.createTxHash(
         network: account.network,
         from: account.address,
@@ -362,6 +372,7 @@ class AppProvider extends ChangeNotifier {
         amountBase: amountBase.toString(),
         hashTx: hashResp.hash,
         txData: hashResp.txData ?? '',
+        escrowId: escrowId,
       );
       await _apiService.sendIncompleteSignature(
         alg: account.network == 'eth' ? 'ecdsa' : 'frost',
@@ -373,6 +384,8 @@ class AppProvider extends ChangeNotifier {
         to: toAddress,
         amount: amountBase.toString(),
         txData: hashResp.txData ?? '',
+        escrowId: escrowId,
+        pub: pub,
       );
       await loadCosignHistory();
       return null;
@@ -380,6 +393,33 @@ class AppProvider extends ChangeNotifier {
       _handleAuthError(e);
       return e is ApiError ? e.message : '$e';
     }
+  }
+
+  /// Poll the escrow for a released signature for our escrow-await entry and,
+  /// when complete, mark it ready to broadcast. Returns true if released.
+  Future<bool> checkEscrow(CosignEvent ev) async {
+    if (ev.escrowId.isEmpty || ev.pub.isEmpty) return false;
+    try {
+      final resp =
+          await _apiService.escrowCheck(id: ev.escrowId, pub: ev.pub);
+      if ((resp['status'] ?? '') == 'complete') {
+        final b64 = (resp['signature'] ?? '').toString();
+        if (b64.isNotEmpty) {
+          final hexSig = _b64ToHex(b64);
+          await _apiService.completeCosign(ev.hash, hexSig);
+          await loadCosignHistory();
+          return true;
+        }
+      }
+    } catch (e) {
+      _handleAuthError(e);
+    }
+    return false;
+  }
+
+  String _b64ToHex(String b64) {
+    final bytes = base64Decode(b64);
+    return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   }
 
   /// Broadcast a completed co-sign (acceptor side) from Activity.
@@ -414,6 +454,7 @@ class AppProvider extends ChangeNotifier {
     final to = (body['to'] ?? '').toString();
     final amount = (body['amount'] ?? '').toString();
     final txData = (body['tx_data'] ?? '').toString();
+    final escrowId = (body['escrow_id'] ?? '').toString();
 
     // Use OUR local account for this escrow (our own party ids / index).
     AccountMeta? acct;
@@ -446,9 +487,16 @@ class AppProvider extends ChangeNotifier {
       await refreshMessages();
       await loadCosignHistory();
 
-      // Return the signature to the initiator so they can broadcast too.
       final sig = resp.completeSignature ?? '';
-      if (sig.isNotEmpty) {
+
+      if (escrowId.isNotEmpty && sig.isNotEmpty) {
+        // Atomic swap: deposit the completed signature into the server escrow
+        // under OUR own pending withdrawal's pub+hash (the reciprocal). Escrow
+        // releases each side their own withdrawal sig only when both are valid.
+        await _depositToEscrow(escrowId, sig);
+      } else if (sig.isNotEmpty) {
+        // Normal flow: return the signature to the initiator so they can
+        // broadcast too.
         final pairId = findPairIdWith(message.from);
         if (pairId != null) {
           try {
@@ -468,6 +516,42 @@ class AppProvider extends ChangeNotifier {
       _state = AppState.error;
       notifyListeners();
       return null;
+    }
+  }
+
+  /// Deposit a completed signature into the server escrow under MY own pending
+  /// withdrawal (the escrow-await entry for this swap). Requires that I have
+  /// also started my escrow withdrawal (so I have my pub+hash to deposit with).
+  Future<void> _depositToEscrow(String escrowId, String completedSig) async {
+    CosignEvent? mine;
+    for (final e in _cosignHistory) {
+      if (e.role == 'initiator' &&
+          e.escrowId == escrowId &&
+          e.pub.isNotEmpty &&
+          (e.status == 'escrow-await' || e.status == 'completed')) {
+        mine = e;
+        break;
+      }
+    }
+    if (mine == null) {
+      _errorMessage =
+          'Start your own escrow withdrawal first (atomic swap needs both sides).';
+      notifyListeners();
+      return;
+    }
+    try {
+      await _apiService.escrowDeposit(
+        alg: mine.network == 'eth' ? 'ecdsa' : 'frost',
+        id: escrowId,
+        pub: mine.pub,
+        hash: mine.hash,
+        sig: completedSig,
+      );
+      // Try to retrieve our own released sig immediately (in case the partner
+      // already deposited); otherwise the user polls via "Check escrow".
+      await checkEscrow(mine);
+    } catch (e) {
+      _handleAuthError(e);
     }
   }
 

@@ -357,6 +357,8 @@ class ApiService {
     String? to,
     String? amount,
     String? txData,
+    String? escrowId,
+    String? pub,
   }) async {
     final response = await _makeRequest(
       'POST',
@@ -371,10 +373,39 @@ class ApiService {
         if (to != null && to.isNotEmpty) 'to': to,
         if (amount != null && amount.isNotEmpty) 'amount': amount,
         if (txData != null && txData.isNotEmpty) 'tx_data': txData,
+        if (escrowId != null && escrowId.isNotEmpty) 'escrow_id': escrowId,
+        if (pub != null && pub.isNotEmpty) 'pub': pub,
       },
       timeout: const Duration(minutes: 5),
     );
     return IncompleteSignatureResponse.fromJson(response);
+  }
+
+  // ── Escrow (server pollination, atomic swap) ──
+
+  /// Deposit a flower (the completed signature) into the server escrow.
+  /// Returns the response status ('pending' | 'complete') + optional signature.
+  Future<Map<String, dynamic>> escrowDeposit({
+    required String alg,
+    required String id,
+    required String pub,
+    required String hash,
+    required String sig,
+  }) async {
+    return _makeRequest('POST', '/v1/escrow',
+        useServer: true,
+        auth: true,
+        body: {'alg': alg, 'id': id, 'pub': pub, 'hash': hash, 'sig': sig});
+  }
+
+  /// Poll the escrow pollination for {id, pub}. When both flowers are valid,
+  /// returns {status:'complete', signature: base64}.
+  Future<Map<String, dynamic>> escrowCheck({
+    required String id,
+    required String pub,
+  }) async {
+    return _makeRequest('POST', '/v1/escrow/check',
+        useServer: true, auth: true, body: {'id': id, 'pub': pub});
   }
 
   /// Initiator: attach the partner-returned signature to our 'sent' history

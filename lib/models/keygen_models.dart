@@ -348,6 +348,8 @@ class CosignEvent {
   final String txData;
   final String txHash;
   final String error;
+  final String escrowId; // pollination id (atomic swap)
+  final String pub; // escrow account public key
   final int createdAt; // unix ms
 
   CosignEvent({
@@ -364,6 +366,8 @@ class CosignEvent {
     required this.txData,
     required this.txHash,
     required this.error,
+    this.escrowId = '',
+    this.pub = '',
     required this.createdAt,
   });
 
@@ -381,6 +385,8 @@ class CosignEvent {
         txData: json['tx_data'] as String? ?? '',
         txHash: json['tx_hash'] as String? ?? '',
         error: json['error'] as String? ?? '',
+        escrowId: json['escrow_id'] as String? ?? '',
+        pub: json['pub'] as String? ?? '',
         createdAt: json['created_at'] as int? ?? 0,
       );
 }
