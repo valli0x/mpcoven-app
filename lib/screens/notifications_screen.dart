@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import '../models/keygen_models.dart';
 import '../providers/keygen_provider.dart';
 import '../services/units.dart';
-import '../widgets/address_balance.dart';
 import '../widgets/page_scaffold.dart';
 
 const _kEth = Color(0xFF627EEA);
@@ -398,14 +397,8 @@ class _MessageCard extends StatelessWidget {
     final to = (_body['to'] ?? '').toString();
     final amountBase = (_body['amount'] ?? '').toString();
     final hash = (_body['hash_tx'] ?? '').toString();
-
-    String amountText = '';
-    if (amountBase.isNotEmpty) {
-      try {
-        amountText = '${Units.fromBase(BigInt.parse(amountBase), net)} '
-            '${Units.symbol(net)}';
-      } catch (_) {}
-    }
+    final escrow = (_body['escrow_address'] ?? '').toString();
+    final txData = (_body['tx_data'] ?? '').toString();
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -415,27 +408,31 @@ class _MessageCard extends StatelessWidget {
       ),
       child: Column(
         children: [
+          // FROM = which of YOUR accounts is being spent. This is what your
+          // signature authorizes — verify it.
           _DetailRow(
             icon: _isEth ? Icons.diamond_outlined : Icons.currency_bitcoin,
-            label: 'Account',
+            label: 'Spending from',
             value: [net.toUpperCase(), if (index != null) '#$index'].join(' '),
             color: accent,
           ),
-          if (to.isNotEmpty)
+          if (escrow.isNotEmpty)
             _DetailRow(
-              icon: Icons.send_outlined,
-              label: 'To',
-              value: _short(to, head: 8, tail: 6),
+              icon: Icons.account_balance_outlined,
+              label: 'Account',
+              value: _short(escrow, head: 8, tail: 6),
               color: accent,
               mono: true,
             ),
-          if (amountText.isNotEmpty)
-            _AmountDetailRow(
-              amountText: amountText,
-              amountBase: amountBase,
-              network: net,
-              color: accent,
-            ),
+          // Verified To/amount decoded from tx_data (the bytes you actually
+          // sign) — not the sender's claimed display values.
+          _VerifiedTxDetails(
+            txData: txData,
+            network: net,
+            claimedTo: to,
+            claimedAmount: amountBase,
+            accent: accent,
+          ),
           if (hash.isNotEmpty)
             _DetailRow(
               icon: Icons.tag,
@@ -609,53 +606,105 @@ class _DetailRow extends StatelessWidget {
   }
 }
 
-/// Amount detail row with an ≈USD estimate fetched on build.
-class _AmountDetailRow extends StatelessWidget {
-  final String amountText;
-  final String amountBase;
+/// Decodes tx_data on the client and shows the AUTHORITATIVE To/amount that the
+/// signature will actually authorize — flagging any mismatch with the sender's
+/// claimed display values (anti-tampering: see what you really sign).
+class _VerifiedTxDetails extends StatelessWidget {
+  final String txData;
   final String network;
-  final Color color;
+  final String claimedTo;
+  final String claimedAmount;
+  final Color accent;
 
-  const _AmountDetailRow({
-    required this.amountText,
-    required this.amountBase,
+  const _VerifiedTxDetails({
+    required this.txData,
     required this.network,
-    required this.color,
+    required this.claimedTo,
+    required this.claimedAmount,
+    required this.accent,
   });
+
+  String _short(String s, {int head = 8, int tail = 6}) =>
+      s.length <= head + tail + 3
+          ? s
+          : '${s.substring(0, head)}…${s.substring(s.length - tail)}';
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Row(
-        children: [
-          Icon(Icons.payments_outlined, size: 16, color: color.withValues(alpha: 0.8)),
-          const SizedBox(width: 10),
-          Text('Amount',
-              style: theme.textTheme.bodySmall
-                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-          const Spacer(),
-          Text(amountText,
-              style: theme.textTheme.bodyMedium
-                  ?.copyWith(fontWeight: FontWeight.w600)),
-          const SizedBox(width: 6),
-          FutureBuilder<double?>(
-            future: kPriceService.usdPrice(network),
-            builder: (context, snap) {
-              final price = snap.data;
-              if (price == null) return const SizedBox.shrink();
-              double human = 0;
-              try {
-                human = double.parse(Units.fromBase(BigInt.parse(amountBase), network));
-              } catch (_) {}
-              return Text('≈ \$${(human * price).toStringAsFixed(2)}',
-                  style: theme.textTheme.labelSmall
-                      ?.copyWith(color: theme.colorScheme.onSurfaceVariant));
-            },
-          ),
-        ],
-      ),
+    if (txData.isEmpty) {
+      // No tx_data to verify against — show claimed values with a caution.
+      return Column(children: [
+        if (claimedTo.isNotEmpty)
+          _DetailRow(
+              icon: Icons.send_outlined,
+              label: 'To',
+              value: _short(claimedTo),
+              color: accent,
+              mono: true),
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Row(children: [
+            Icon(Icons.info_outline, size: 12, color: Colors.orange),
+            const SizedBox(width: 4),
+            Text('unverified (no tx data)',
+                style:
+                    theme.textTheme.labelSmall?.copyWith(color: Colors.orange)),
+          ]),
+        ),
+      ]);
+    }
+    return FutureBuilder<Map<String, dynamic>>(
+      future: context.read<AppProvider>().apiService.decodeTx(network, txData),
+      builder: (context, snap) {
+        if (!snap.hasData) {
+          return _DetailRow(
+              icon: Icons.hourglass_empty,
+              label: 'To',
+              value: 'verifying…',
+              color: accent);
+        }
+        final d = snap.data!;
+        final to = (d['to'] ?? '').toString();
+        final valueBase = (d['value'] ?? '0').toString();
+        String amountText = '';
+        try {
+          amountText = '${Units.fromBase(BigInt.parse(valueBase), network)} '
+              '${Units.symbol(network)}';
+        } catch (_) {}
+        final toMismatch =
+            claimedTo.isNotEmpty && to.toLowerCase() != claimedTo.toLowerCase();
+        final amtMismatch =
+            claimedAmount.isNotEmpty && valueBase != claimedAmount;
+        return Column(children: [
+          _DetailRow(
+              icon: Icons.send_outlined,
+              label: 'To (verified)',
+              value: _short(to),
+              color: toMismatch ? Colors.red : Colors.green,
+              mono: true),
+          if (amountText.isNotEmpty)
+            _DetailRow(
+                icon: Icons.payments_outlined,
+                label: 'Amount (verified)',
+                value: amountText,
+                color: amtMismatch ? Colors.red : Colors.green),
+          if (toMismatch || amtMismatch)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Row(children: [
+                Icon(Icons.warning_amber_rounded, size: 13, color: Colors.red),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                      'WARNING: signed transaction differs from what was shown — do NOT accept',
+                      style: theme.textTheme.labelSmall
+                          ?.copyWith(color: Colors.red, fontWeight: FontWeight.bold)),
+                ),
+              ]),
+            ),
+        ]);
+      },
     );
   }
 }

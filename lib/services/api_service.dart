@@ -381,6 +381,12 @@ class ApiService {
     return IncompleteSignatureResponse.fromJson(response);
   }
 
+  /// Decode an unsigned tx_data so the acceptor can verify what they sign.
+  Future<Map<String, dynamic>> decodeTx(String network, String txData) async {
+    return _makeRequest('POST', '/v1/tx/decode',
+        body: {'network': network, 'tx_data': txData});
+  }
+
   // ── Escrow (server pollination, atomic swap) ──
 
   /// Deposit a flower (the completed signature) into the server escrow.
