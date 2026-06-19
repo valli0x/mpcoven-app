@@ -135,17 +135,24 @@ class _ExchangeCardState extends State<_ExchangeCard> {
   late bool _editing;
   bool _saving = false;
   bool _proposing = false;
-  String? _selA; // selected escrow address for side A
-  String? _selB;
+  late final TextEditingController _aCtrl;
+  late final TextEditingController _bCtrl;
 
   ExchangeEntry get entry => widget.entry;
 
   @override
   void initState() {
     super.initState();
-    _selA = entry.addressA.isEmpty ? null : entry.addressA;
-    _selB = entry.addressB.isEmpty ? null : entry.addressB;
+    _aCtrl = TextEditingController(text: entry.addressA);
+    _bCtrl = TextEditingController(text: entry.addressB);
     _editing = entry.addressA.isEmpty && entry.addressB.isEmpty;
+  }
+
+  @override
+  void dispose() {
+    _aCtrl.dispose();
+    _bCtrl.dispose();
+    super.dispose();
   }
 
   @override
@@ -375,66 +382,84 @@ class _ExchangeCardState extends State<_ExchangeCard> {
     ));
   }
 
-  // ── Edit mode (pick from MY escrow accounts only) ──
+  // ── Edit mode: paste/type the escrow address, with validation + search ──
   Widget _buildEdit(ThemeData theme) {
-    final accounts = context.watch<AppProvider>().accounts;
+    final provider = context.watch<AppProvider>();
 
-    DropdownButtonFormField<String> picker(
-        String label, String? value, ValueChanged<String?> onChanged) {
-      // Include a legacy value not in accounts so it isn't silently dropped.
-      final items = <DropdownMenuItem<String>>[
-        for (final a in accounts)
-          DropdownMenuItem(
-            value: a.address,
-            child: Text('${a.network.toUpperCase()} #${a.index} · '
-                '${_short(a.address, head: 6, tail: 4)}'),
+    Widget field(String label, TextEditingController ctrl) {
+      final val = ctrl.text.trim();
+      final acc = val.isEmpty ? null : provider.escrowAccountFor(val);
+      Widget? hint;
+      if (val.isNotEmpty) {
+        hint = acc != null
+            ? Row(children: [
+                const Icon(Icons.check_circle, size: 13, color: Colors.green),
+                const SizedBox(width: 4),
+                Text('${acc.network.toUpperCase()} #${acc.index} · in your accounts',
+                    style: theme.textTheme.labelSmall
+                        ?.copyWith(color: Colors.green)),
+              ])
+            : Row(children: [
+                Icon(Icons.warning_amber_rounded,
+                    size: 13, color: Colors.orange),
+                const SizedBox(width: 4),
+                Text('not one of your escrow accounts',
+                    style: theme.textTheme.labelSmall
+                        ?.copyWith(color: Colors.orange)),
+              ]);
+      }
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            controller: ctrl,
+            onChanged: (_) => setState(() {}),
+            style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+            decoration: InputDecoration(
+              labelText: label,
+              hintText: '0x… / bc1…  (paste address)',
+              isDense: true,
+              filled: true,
+              fillColor: theme.colorScheme.surfaceContainerHighest
+                  .withValues(alpha: 0.4),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              suffixIcon: IconButton(
+                icon: const Icon(Icons.search, size: 20),
+                tooltip: 'Find my account',
+                onPressed: () => _pickAccount(ctrl),
+              ),
+            ),
           ),
-        if (value != null && !accounts.any((a) => a.address == value))
-          DropdownMenuItem(value: value, child: Text(_short(value))),
-      ];
-      return DropdownButtonFormField<String>(
-        initialValue: value,
-        isExpanded: true,
-        decoration: InputDecoration(
-          labelText: label,
-          isDense: true,
-          filled: true,
-          fillColor:
-              theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide.none,
-          ),
-        ),
-        items: items,
-        onChanged: onChanged,
+          if (hint != null)
+            Padding(
+              padding: const EdgeInsets.only(left: 4, top: 4),
+              child: hint,
+            ),
+        ],
       );
     }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (accounts.isEmpty)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: Text(
-                'No escrow accounts yet — generate keys first, then link them here.',
-                style: theme.textTheme.bodySmall
-                    ?.copyWith(color: theme.colorScheme.error)),
-          ),
-        picker('Escrow A', _selA, (v) => setState(() => _selA = v)),
+        field('Escrow A', _aCtrl),
         const SizedBox(height: 10),
-        picker('Escrow B', _selB, (v) => setState(() => _selB = v)),
+        field('Escrow B', _bCtrl),
         const SizedBox(height: 6),
-        Text('Pick two of your escrow accounts. Each side\'s partner is taken '
-            'from that account.',
+        Text('Paste each escrow address (or 🔍 to search your accounts). '
+            'Each side\'s partner is taken from that account.',
             style: theme.textTheme.labelSmall
                 ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
         const SizedBox(height: 12),
         Row(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
-            TextButton(onPressed: _saving ? null : _cancel, child: const Text('Cancel')),
+            TextButton(
+                onPressed: _saving ? null : _cancel,
+                child: const Text('Cancel')),
             const SizedBox(width: 8),
             FilledButton.icon(
               onPressed: _saving ? null : _save,
@@ -452,6 +477,78 @@ class _ExchangeCardState extends State<_ExchangeCard> {
     );
   }
 
+  /// Searchable picker over MY accounts (handles hundreds without scrolling).
+  Future<void> _pickAccount(TextEditingController target) async {
+    final accounts = context.read<AppProvider>().accounts;
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) {
+        final search = ValueNotifier<String>('');
+        return SafeArea(
+          child: Padding(
+            padding: EdgeInsets.only(
+                bottom: MediaQuery.of(ctx).viewInsets.bottom),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: TextField(
+                    autofocus: true,
+                    onChanged: (v) => search.value = v.toLowerCase(),
+                    decoration: const InputDecoration(
+                      prefixIcon: Icon(Icons.search),
+                      hintText: 'Search by name / address / ETH #1…',
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                Flexible(
+                  child: ValueListenableBuilder<String>(
+                    valueListenable: search,
+                    builder: (_, q, __) {
+                      final items = accounts.where((a) {
+                        if (q.isEmpty) return true;
+                        final label = '${a.network} #${a.index}'.toLowerCase();
+                        return a.address.toLowerCase().contains(q) ||
+                            label.contains(q);
+                      }).toList();
+                      return ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: items.length,
+                        itemBuilder: (_, i) {
+                          final a = items[i];
+                          final isEth = a.network == 'eth';
+                          return ListTile(
+                            leading: Icon(
+                                isEth
+                                    ? Icons.diamond_outlined
+                                    : Icons.currency_bitcoin,
+                                color: isEth ? _kEth : _kBtc),
+                            title: Text('${a.network.toUpperCase()} #${a.index}'),
+                            subtitle: Text(_short(a.address, head: 10, tail: 8),
+                                style:
+                                    const TextStyle(fontFamily: 'monospace')),
+                            onTap: () => Navigator.pop(ctx, a.address),
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    if (picked != null) {
+      setState(() => target.text = picked);
+    }
+  }
+
   void _cancel() {
     final isEmptyDraft = entry.addressA.isEmpty && entry.addressB.isEmpty;
     if (isEmptyDraft) {
@@ -459,29 +556,42 @@ class _ExchangeCardState extends State<_ExchangeCard> {
       return;
     }
     setState(() {
-      _selA = entry.addressA.isEmpty ? null : entry.addressA;
-      _selB = entry.addressB.isEmpty ? null : entry.addressB;
+      _aCtrl.text = entry.addressA;
+      _bCtrl.text = entry.addressB;
       _editing = false;
     });
   }
 
   Future<void> _save() async {
-    final a = _selA ?? '';
-    final b = _selB ?? '';
+    final a = _aCtrl.text.trim();
+    final b = _bCtrl.text.trim();
     if (a.isEmpty || b.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Pick both escrow accounts')),
+        const SnackBar(content: Text('Enter both escrow addresses')),
       );
       return;
     }
-    if (a == b) {
+    if (a.toLowerCase() == b.toLowerCase()) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Pick two different accounts')),
+        const SnackBar(content: Text('Use two different accounts')),
       );
+      return;
+    }
+    final provider = context.read<AppProvider>();
+    final missing = <String>[
+      if (provider.escrowAccountFor(a) == null) 'A',
+      if (provider.escrowAccountFor(b) == null) 'B',
+    ];
+    if (missing.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(
+            'Address ${missing.join(' & ')} is not one of your escrow accounts'),
+        backgroundColor: Colors.red,
+      ));
       return;
     }
     setState(() => _saving = true);
-    final ok = await context.read<AppProvider>().updateExchange(entry.id, a, b);
+    final ok = await provider.updateExchange(entry.id, a, b);
     if (!mounted) return;
     setState(() {
       _saving = false;
