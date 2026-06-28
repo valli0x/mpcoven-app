@@ -402,6 +402,7 @@ class ExchangeEntry {
   final String addressB;
   final String partnerB;
   final String statusB;
+  final String creator; // who withdraws from A; the other withdraws from B
   final int createdAt; // epoch ms
 
   ExchangeEntry({
@@ -412,6 +413,7 @@ class ExchangeEntry {
     required this.addressB,
     this.partnerB = '',
     this.statusB = '',
+    this.creator = '',
     required this.createdAt,
   });
 
@@ -423,6 +425,7 @@ class ExchangeEntry {
         'address_b': addressB,
         'partner_b': partnerB,
         'status_b': statusB,
+        'creator': creator,
         'created_at': createdAt,
       };
 
@@ -434,6 +437,7 @@ class ExchangeEntry {
         addressB: json['address_b'] as String? ?? '',
         partnerB: json['partner_b'] as String? ?? '',
         statusB: json['status_b'] as String? ?? '',
+        creator: json['creator'] as String? ?? '',
         createdAt: json['created_at'] as int? ?? 0,
       );
 }

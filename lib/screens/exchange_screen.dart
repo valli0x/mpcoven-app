@@ -386,80 +386,21 @@ class _ExchangeCardState extends State<_ExchangeCard> {
   }
 
   /// Pick which escrow account in this exchange to withdraw from (the one the
-  /// other party funded for you), then open the tx screen with the escrow swap
-  /// pre-enabled and the shared pollination id = this exchange id.
+  /// Withdraw from MY assigned escrow only (creator → A, partner → B). No
+  /// picker — both parties can't pick the same account.
   Future<void> _withdrawViaEscrow(AppProvider provider) async {
-    final candidates = <AccountMeta>[];
-    for (final addr in [entry.addressA, entry.addressB]) {
-      final acc = provider.escrowAccountFor(addr);
-      if (acc != null && !candidates.any((c) => c.address == acc.address)) {
-        candidates.add(acc);
-      }
-    }
-    if (candidates.isEmpty) {
+    final myAddr = provider.myExchangeWithdrawAddress(entry);
+    if (myAddr.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Neither address is one of your escrow accounts')));
+          content: Text('This exchange has no creator set — re-save it first')));
       return;
     }
-    AccountMeta account = candidates.first;
-    if (candidates.length > 1) {
-      final picked = await showModalBottomSheet<AccountMeta>(
-        context: context,
-        backgroundColor: Colors.transparent,
-        builder: (ctx) {
-          final theme = Theme.of(ctx);
-          return SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surface,
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(
-                      color:
-                          theme.colorScheme.outlineVariant.withValues(alpha: 0.4)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.35),
-                      blurRadius: 24,
-                      offset: const Offset(0, 10),
-                    ),
-                  ],
-                ),
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.onSurfaceVariant
-                            .withValues(alpha: 0.3),
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Text('Withdraw from which escrow?',
-                        style: theme.textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 14),
-                    for (final a in candidates) ...[
-                      _EscrowPickTile(
-                        account: a,
-                        onTap: () => Navigator.pop(ctx, a),
-                      ),
-                      if (a != candidates.last) const SizedBox(height: 8),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          );
-        },
-      );
-      if (picked == null || !mounted) return;
-      account = picked;
+    final account = provider.escrowAccountFor(myAddr);
+    if (account == null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              'Your assigned escrow ${_short(myAddr)} is not one of your accounts')));
+      return;
     }
     if (!mounted) return;
     Navigator.of(context).push(MaterialPageRoute(
@@ -545,12 +486,13 @@ class _ExchangeCardState extends State<_ExchangeCard> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        field('Escrow A', _aCtrl),
+        field('Escrow A — YOU withdraw', _aCtrl),
         const SizedBox(height: 10),
-        field('Escrow B', _bCtrl),
+        field('Escrow B — PARTNER withdraws', _bCtrl),
         const SizedBox(height: 6),
-        Text('Paste each escrow address (or 🔍 to search your accounts). '
-            'Each side\'s partner is taken from that account.',
+        Text('A is the account you withdraw from; B is your partner\'s. Paste '
+            'each escrow address (or 🔍 to search). Each account is bound to one '
+            'withdrawer — you can\'t both pull the same one.',
             style: theme.textTheme.labelSmall
                 ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
         const SizedBox(height: 12),
@@ -697,68 +639,5 @@ class _ExchangeCardState extends State<_ExchangeCard> {
       _saving = false;
       if (ok) _editing = false;
     });
-  }
-}
-
-/// Account row inside the "Withdraw from which escrow?" sheet — app-styled.
-class _EscrowPickTile extends StatelessWidget {
-  final AccountMeta account;
-  final VoidCallback onTap;
-  const _EscrowPickTile({required this.account, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isEth = account.network == 'eth';
-    final color = isEth ? _kEth : _kBtc;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surfaceContainerHighest
-                .withValues(alpha: 0.5),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: color.withValues(alpha: 0.25)),
-          ),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(9),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                    isEth ? Icons.diamond_outlined : Icons.currency_bitcoin,
-                    color: color,
-                    size: 20),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('${account.network.toUpperCase()} #${account.index}',
-                        style: theme.textTheme.titleSmall
-                            ?.copyWith(fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 2),
-                    Text(_short(account.address, head: 10, tail: 8),
-                        style: theme.textTheme.bodySmall?.copyWith(
-                            fontFamily: 'monospace',
-                            color: theme.colorScheme.onSurfaceVariant)),
-                  ],
-                ),
-              ),
-              Icon(Icons.chevron_right,
-                  color: theme.colorScheme.onSurfaceVariant, size: 20),
-            ],
-          ),
-        ),
-      ),
-    );
   }
 }

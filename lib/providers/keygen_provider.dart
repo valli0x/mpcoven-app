@@ -139,6 +139,7 @@ class AppProvider extends ChangeNotifier {
         addressB.trim(),
         partnerA: escrowPartnerAddress(addressA),
         partnerB: escrowPartnerAddress(addressB),
+        creator: _authAddress, // I created/edited it → I withdraw from A
       );
       await loadExchanges();
       return true;
@@ -184,6 +185,20 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
+  /// In an exchange, the escrow address THIS user is allowed to withdraw from:
+  /// the creator withdraws from A, the other party from B. '' if not resolvable.
+  String myExchangeWithdrawAddress(ExchangeEntry e) {
+    final me = (_authAddress ?? '').toLowerCase();
+    if (me.isEmpty) return '';
+    return e.creator.toLowerCase() == me ? e.addressA : e.addressB;
+  }
+
+  /// The escrow address assigned to the OTHER party (the one we may co-sign).
+  String partnerExchangeWithdrawAddress(ExchangeEntry e) {
+    final me = (_authAddress ?? '').toLowerCase();
+    return e.creator.toLowerCase() == me ? e.addressB : e.addressA;
+  }
+
   /// Acceptor: import a proposed exchange. The side(s) where WE are the partner
   /// (i.e. our escrow account is shared with the initiator) are marked accepted.
   Future<bool> acceptExchangeProposal(MailboxMessage message) async {
@@ -204,6 +219,7 @@ class AppProvider extends ChangeNotifier {
         addressB: bAddr,
         partnerB: escrowAccountFor(bAddr) != null ? initiator : '',
         statusB: escrowAccountFor(bAddr) != null ? 'accepted' : '',
+        creator: initiator, // the proposer created it → they withdraw from A
       );
       await ackMessage(message.id);
       await refreshMessages();
@@ -474,6 +490,29 @@ class AppProvider extends ChangeNotifier {
       _state = AppState.error;
       notifyListeners();
       return null;
+    }
+
+    // SECURITY (escrow swap): refuse to co-sign a withdrawal from an escrow
+    // account assigned to ME — I only co-sign the account assigned to the OTHER
+    // party. Prevents the counterparty draining MY designated account to itself.
+    if (escrowId.isNotEmpty) {
+      ExchangeEntry? ex;
+      for (final e in _exchanges) {
+        if (e.id == escrowId) {
+          ex = e;
+          break;
+        }
+      }
+      if (ex != null) {
+        final mine = myExchangeWithdrawAddress(ex).toLowerCase();
+        if (mine.isNotEmpty && escrow.toLowerCase() == mine) {
+          _errorMessage =
+              'Refusing: this escrow is YOURS to withdraw — you only co-sign the partner\'s account.';
+          _state = AppState.error;
+          notifyListeners();
+          return null;
+        }
+      }
     }
 
     try {

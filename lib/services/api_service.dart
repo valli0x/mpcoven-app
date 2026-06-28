@@ -234,6 +234,7 @@ class ApiService {
     String? statusA,
     String? partnerB,
     String? statusB,
+    String? creator,
   }) async {
     final response = await _makeRequest(
       'POST',
@@ -246,6 +247,7 @@ class ApiService {
         if (statusA != null && statusA.isNotEmpty) 'status_a': statusA,
         if (partnerB != null && partnerB.isNotEmpty) 'partner_b': partnerB,
         if (statusB != null && statusB.isNotEmpty) 'status_b': statusB,
+        if (creator != null && creator.isNotEmpty) 'creator': creator,
       },
     );
     return ExchangeEntry.fromJson(response);
@@ -260,6 +262,7 @@ class ApiService {
     required String addressB,
     required String partnerB,
     required String statusB,
+    required String creator,
   }) async {
     final response = await _makeRequest(
       'POST',
@@ -272,6 +275,7 @@ class ApiService {
         'address_b': addressB,
         'partner_b': partnerB,
         'status_b': statusB,
+        'creator': creator,
       },
     );
     return ExchangeEntry.fromJson(response);
