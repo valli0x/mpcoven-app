@@ -405,28 +405,58 @@ class _ExchangeCardState extends State<_ExchangeCard> {
     if (candidates.length > 1) {
       final picked = await showModalBottomSheet<AccountMeta>(
         context: context,
-        builder: (ctx) => SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Padding(
-                padding: EdgeInsets.all(16),
-                child: Text('Withdraw from which escrow?',
-                    style: TextStyle(fontWeight: FontWeight.bold)),
-              ),
-              for (final a in candidates)
-                ListTile(
-                  leading: Icon(a.network == 'eth'
-                      ? Icons.diamond_outlined
-                      : Icons.currency_bitcoin),
-                  title: Text('${a.network.toUpperCase()} #${a.index}'),
-                  subtitle: Text(_short(a.address, head: 10, tail: 8),
-                      style: const TextStyle(fontFamily: 'monospace')),
-                  onTap: () => Navigator.pop(ctx, a),
+        backgroundColor: Colors.transparent,
+        builder: (ctx) {
+          final theme = Theme.of(ctx);
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surface,
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(
+                      color:
+                          theme.colorScheme.outlineVariant.withValues(alpha: 0.4)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.35),
+                      blurRadius: 24,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
                 ),
-            ],
-          ),
-        ),
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.onSurfaceVariant
+                            .withValues(alpha: 0.3),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text('Withdraw from which escrow?',
+                        style: theme.textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 14),
+                    for (final a in candidates) ...[
+                      _EscrowPickTile(
+                        account: a,
+                        onTap: () => Navigator.pop(ctx, a),
+                      ),
+                      if (a != candidates.last) const SizedBox(height: 8),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
       );
       if (picked == null || !mounted) return;
       account = picked;
@@ -667,5 +697,68 @@ class _ExchangeCardState extends State<_ExchangeCard> {
       _saving = false;
       if (ok) _editing = false;
     });
+  }
+}
+
+/// Account row inside the "Withdraw from which escrow?" sheet — app-styled.
+class _EscrowPickTile extends StatelessWidget {
+  final AccountMeta account;
+  final VoidCallback onTap;
+  const _EscrowPickTile({required this.account, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isEth = account.network == 'eth';
+    final color = isEth ? _kEth : _kBtc;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surfaceContainerHighest
+                .withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: color.withValues(alpha: 0.25)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(9),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                    isEth ? Icons.diamond_outlined : Icons.currency_bitcoin,
+                    color: color,
+                    size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('${account.network.toUpperCase()} #${account.index}',
+                        style: theme.textTheme.titleSmall
+                            ?.copyWith(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 2),
+                    Text(_short(account.address, head: 10, tail: 8),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                            fontFamily: 'monospace',
+                            color: theme.colorScheme.onSurfaceVariant)),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right,
+                  color: theme.colorScheme.onSurfaceVariant, size: 20),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
