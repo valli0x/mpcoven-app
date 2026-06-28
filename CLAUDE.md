@@ -104,7 +104,10 @@ A 2-of-2 transaction is signed jointly; broadcasting needs the full tx, so the p
 - The Notifications "Signature Request" card shows **Spending from** (which of YOUR accounts is drained) + **To/Amount
   (verified)** decoded from `tx_data` via `POST /v1/tx/decode` (NOT the sender's claimed display fields), with a red
   warning if the decoded values differ. Each co-sign authorizes ONE tx from ONE account; draining two accounts needs
-  two separate accepts — each is explicitly shown/verified. (TODO discussed: explicit confirm dialog + one-co-sign-per-swap guard.)
+  two separate accepts — each is explicitly shown/verified.
+- **One co-sign per swap (DONE):** `acceptWithdrawalTx` rejects (409) a second accept for the same `escrow_id`
+  (scans cosign-history for an existing acceptor/completed event). The app passes `escrow_id` to accept. So you
+  can be tricked into co-signing AT MOST one withdrawal per swap. (Still TODO: explicit confirm dialog before signing.)
 
 ## Escrow atomic swap (fair exchange, NO timebox yet)
 - Entered ONLY from an accepted Exchange ("Withdraw via escrow" → pick the escrow account → opens tx_screen with the
@@ -117,6 +120,18 @@ A 2-of-2 transaction is signed jointly; broadcasting needs the full tx, so the p
   → `completed` → Send Transaction. BOTH parties must run the withdrawal (each from the escrow the other funded).
 - Pollination id = exchange.id ⇒ multiple concurrent swaps OK. (Direct checkbox path used pairId = one-per-pair; now removed.)
 - NOT yet live-verified: whether server `validation.Validate` accepts the 65-byte SigEthereum format in pollination.
+
+## Open items / NOT done yet (don't forget after a reset)
+- **Escrow swap not live-verified end-to-end**: a full two-party swap up to a real pollination RELEASE has not been
+  run. The OPEN risk is whether server `validation.Validate` accepts the 65-byte `SigEthereum` (r‖s‖v) flower format —
+  test A↔B, and adjust the sig format in pollination if it rejects.
+- **timebox** (time-locked unilateral fallback if the counterparty never deposits a flower) — endpoints exist on the
+  server (`/v1/timebox`), but NOT wired into the app. Intentionally deferred.
+- **Explicit confirm dialog** before each co-sign (showing verified From/To/Amount) — discussed, not built.
+- **ERC-20 / USDT not supported**: only NATIVE ETH and BTC. `createEthereumTxHash` builds `NewTransaction(..., nil)`
+  (no `data`, gas 21000) and balance uses `BalanceAt` (native). To add: encode `transfer(to,amount)` into `data`,
+  `to`=token contract, value 0, gas ~65k, token decimals; teach `/v1/tx/decode` + balance about tokens. MPC signing
+  itself is token-agnostic (signs any hash).
 
 ## Exchange = shared object (per-side)
 - An Exchange links TWO escrow accounts; each side has its OWN partner (derived locally from accounts) + invite status.
