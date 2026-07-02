@@ -77,6 +77,34 @@ class AppProvider extends ChangeNotifier {
   bool get isAuthenticated => _apiService.isAuthenticated;
   bool get isRestoring => _isRestoring;
   String? get authAddress => _authAddress;
+
+  /// The ETH identity this CLIENT (:8080/:8081) actually holds MPC shares for,
+  /// derived from any account's `pair_my_id`. Every account on one client shares
+  /// the same `pair_my_id`, so the first is representative. '' if no accounts.
+  String get clientIdentity {
+    for (final acc in _accounts) {
+      final my = (acc.pairMyId ?? '').trim();
+      if (my.isNotEmpty) return my.startsWith('0x') ? my : '0x$my';
+    }
+    return '';
+  }
+
+  /// True when the logged-in mailbox address does NOT match the client's own
+  /// MPC identity. In that state exchange proposals / co-sign requests route to
+  /// the wrong mailbox (often your own), so we warn and block sends.
+  static String _short(String? a) {
+    final s = (a ?? '').trim();
+    if (s.length <= 12) return s;
+    return '${s.substring(0, 6)}…${s.substring(s.length - 4)}';
+  }
+
+  bool get identityMismatch {
+    final me = (_authAddress ?? '').toLowerCase();
+    final client = clientIdentity.toLowerCase();
+    if (me.isEmpty || client.isEmpty) return false;
+    return me != client;
+  }
+
   PendingPairs? get pendingPairs => _pendingPairs;
   List<MailboxMessage> get messages => List.unmodifiable(_messages);
   List<AccountMeta> get accounts => List.unmodifiable(_accounts);
@@ -152,12 +180,33 @@ class AppProvider extends ChangeNotifier {
   /// Invite the partner(s) involved in an exchange (per side). Sends a proposal
   /// to each distinct partner and marks that side "invited".
   Future<bool> proposeExchange(ExchangeEntry e) async {
+    final me = (_authAddress ?? '').toLowerCase();
+    // Guard: never send a proposal to ourselves. This happens when the window is
+    // logged in with an address that doesn't match this client's MPC identity —
+    // the escrow account's partner then resolves to our own login.
+    if (identityMismatch) {
+      _errorMessage =
+          'You are signed in as ${_short(_authAddress)}, but this client holds keys for ${_short(clientIdentity)}. '
+          'Sign in as ${_short(clientIdentity)} on this window before inviting a partner.';
+      notifyListeners();
+      return false;
+    }
     final sides = <String, String>{}; // partner -> side label (for status)
     final pa = escrowPartnerAddress(e.addressA);
     final pb = escrowPartnerAddress(e.addressB);
-    if (pa.isNotEmpty && e.statusA != 'accepted') sides[pa] = 'a';
-    if (pb.isNotEmpty && e.statusB != 'accepted') sides[pb] = 'b';
-    if (sides.isEmpty) return false;
+    if (pa.isNotEmpty && pa.toLowerCase() != me && e.statusA != 'accepted') {
+      sides[pa] = 'a';
+    }
+    if (pb.isNotEmpty && pb.toLowerCase() != me && e.statusB != 'accepted') {
+      sides[pb] = 'b';
+    }
+    if (sides.isEmpty) {
+      _errorMessage =
+          'No counterparty to invite — the escrow partner resolves to your own '
+          'address. Check you are signed in with the correct account for this client.';
+      notifyListeners();
+      return false;
+    }
     try {
       for (final partner in sides.keys) {
         final pairId = findPairIdWith(partner);
@@ -374,6 +423,18 @@ class AppProvider extends ChangeNotifier {
       // Pollination id for the atomic swap. Prefer an explicit id (e.g. the
       // Exchange id, shared by both parties); else fall back to the pair id.
       final partner = _partnerAddressFor(account);
+      // Guard: if the co-sign request would route to our own mailbox (login
+      // doesn't match this client's identity), abort — otherwise we notify
+      // ourselves and the partner never sees the request.
+      if (partner.isEmpty ||
+          partner.toLowerCase() == (_authAddress ?? '').toLowerCase()) {
+        _errorMessage = identityMismatch
+            ? 'Signed in as ${_short(_authAddress)}, but this account belongs to '
+                '${_short(clientIdentity)}. Sign in as ${_short(clientIdentity)} to co-sign.'
+            : 'Cannot co-sign: no partner resolved for this account.';
+        notifyListeners();
+        return null;
+      }
       final escrowId = viaEscrow
           ? ((escrowIdOverride != null && escrowIdOverride.isNotEmpty)
               ? escrowIdOverride
