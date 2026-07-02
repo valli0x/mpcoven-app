@@ -8,6 +8,7 @@ class ApiService {
   final String baseUrl;
   String? serverUrl;
   String? _token;
+  String? _clientToken;
   final http.Client _client;
 
   ApiService({
@@ -21,6 +22,31 @@ class ApiService {
 
   void setToken(String token) => _token = token;
   void clearToken() => _token = null;
+
+  // ── Client auth (local/remote Go client on baseUrl) ──
+  String? get clientToken => _clientToken;
+  void setClientToken(String token) => _clientToken = token;
+  void clearClientToken() => _clientToken = null;
+
+  Future<NonceResponse> clientRequestNonce(String address) async {
+    final response = await _makeRequest('POST', '/v1/auth/nonce',
+        body: {'address': address});
+    return NonceResponse.fromJson(response);
+  }
+
+  Future<LoginResponse> clientLogin(
+      String address, String signature, String nonce) async {
+    final response = await _makeRequest('POST', '/v1/auth/login',
+        body: {'address': address, 'signature': signature, 'nonce': nonce});
+    final resp = LoginResponse.fromJson(response);
+    _clientToken = resp.token;
+    return resp;
+  }
+
+  /// The identity this client is bound to: {address, has_keys, bound}.
+  Future<Map<String, dynamic>> clientIdentity() async {
+    return _makeRequest('GET', '/v1/identity');
+  }
 
   // ── Auth (server) ──
 
@@ -513,8 +539,14 @@ class ApiService {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
       };
-      if (auth && _token != null) {
-        headers['Authorization'] = 'Bearer $_token';
+      if (useServer) {
+        if (auth && _token != null) {
+          headers['Authorization'] = 'Bearer $_token';
+        }
+      } else if (_clientToken != null) {
+        // Client (Go :8080/:8081) now requires its own JWT on all /v1
+        // operational routes (auth/nonce, auth/login, identity stay public).
+        headers['Authorization'] = 'Bearer $_clientToken';
       }
 
       http.Response response;

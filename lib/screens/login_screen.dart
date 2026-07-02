@@ -25,6 +25,22 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _manualMode = false;
   bool _busy = false;
 
+  // Manual two-step: after the server sign-in, a second signature authorizes
+  // the Go client itself (which binds to / enforces its owner address).
+  bool _clientSignStep = false;
+  String? _clientNonce;
+  String? _clientMessage;
+
+  void _showClientLoginError(AppProvider provider) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(provider.errorMessage ?? 'Client sign-in failed'),
+      backgroundColor: Colors.red,
+      duration: const Duration(seconds: 6),
+    ));
+    // Without a client token nothing works — return to a clean login.
+    provider.logout();
+  }
+
   bool get _hasMetaMask => MetaMaskService.instance.isAvailable;
 
   @override
@@ -152,14 +168,12 @@ class _LoginScreenState extends State<LoginScreen> {
                     signatureController: _signatureController,
                     nonce: _nonce,
                     nonceMessage: _nonceMessage,
+                    clientSignStep: _clientSignStep,
+                    clientMessage: _clientMessage,
                     isLoading: provider.isLoading,
                     onRequestNonce: () => _requestNonce(provider),
                     onLogin: () => _manualLogin(provider),
-                    onReset: () => setState(() {
-                      _nonce = null;
-                      _nonceMessage = null;
-                      _signatureController.clear();
-                    }),
+                    onReset: _resetManual,
                   ),
                   const SizedBox(height: 12),
                   TextButton.icon(
@@ -168,6 +182,9 @@ class _LoginScreenState extends State<LoginScreen> {
                       _manualMode = false;
                       _nonce = null;
                       _nonceMessage = null;
+                      _clientSignStep = false;
+                      _clientNonce = null;
+                      _clientMessage = null;
                       _signatureController.clear();
                     }),
                     label: Text(_hasMetaMask
@@ -243,7 +260,19 @@ class _LoginScreenState extends State<LoginScreen> {
         address: address,
       );
 
-      await provider.login(address, signature, nonceResp.nonce);
+      final loginResult = await provider.login(address, signature, nonceResp.nonce);
+      if (loginResult != null) {
+        // Second signature: authenticate to the Go client itself.
+        final ok = await provider.clientLogin(
+          address,
+          (msg) => WalletConnectService.instance.personalSign(
+            session: result.session,
+            message: msg,
+            address: address,
+          ),
+        );
+        if (!ok && mounted) _showClientLoginError(provider);
+      }
 
       // Close out the WC session — we got what we needed.
       WalletConnectService.instance.disconnect(result.session);
@@ -269,7 +298,15 @@ class _LoginScreenState extends State<LoginScreen> {
 
       final signature = await mm.personalSign(nonceResp.message, address);
 
-      await provider.login(address, signature, nonceResp.nonce);
+      final loginResult = await provider.login(address, signature, nonceResp.nonce);
+      if (loginResult != null) {
+        // Second signature: authenticate to the Go client itself.
+        final ok = await provider.clientLogin(
+          address,
+          (msg) => mm.personalSign(msg, address),
+        );
+        if (!ok && mounted) _showClientLoginError(provider);
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -296,12 +333,49 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _manualLogin(AppProvider provider) async {
     final addr = _addressController.text.trim();
     final sig = _signatureController.text.trim();
-    if (addr.isEmpty || sig.isEmpty || _nonce == null) return;
-    final result = await provider.login(addr, sig, _nonce!);
-    if (result != null) {
-      provider.refreshPairs();
-      provider.refreshAccounts();
+    if (addr.isEmpty || sig.isEmpty) return;
+
+    if (!_clientSignStep) {
+      // Phase 1: server sign-in.
+      if (_nonce == null) return;
+      final result = await provider.login(addr, sig, _nonce!);
+      if (result == null) return;
+      // Phase 2: fetch a client nonce and ask for a second signature.
+      final cn = await provider.clientRequestNonce(addr);
+      if (cn == null) {
+        if (mounted) _showClientLoginError(provider);
+        return;
+      }
+      setState(() {
+        _clientSignStep = true;
+        _clientNonce = cn.nonce;
+        _clientMessage = cn.message;
+        _signatureController.clear();
+      });
+      return;
     }
+
+    // Phase 2 submit: authorize the Go client with the second signature.
+    if (_clientNonce == null) return;
+    final ok = await provider.clientLoginRaw(addr, sig, _clientNonce!);
+    if (!ok) {
+      if (mounted) _showClientLoginError(provider);
+      _resetManual();
+      return;
+    }
+    provider.refreshPairs();
+    provider.refreshAccounts();
+  }
+
+  void _resetManual() {
+    setState(() {
+      _nonce = null;
+      _nonceMessage = null;
+      _clientSignStep = false;
+      _clientNonce = null;
+      _clientMessage = null;
+      _signatureController.clear();
+    });
   }
 }
 
@@ -427,6 +501,8 @@ class _ManualFlow extends StatelessWidget {
   final TextEditingController signatureController;
   final String? nonce;
   final String? nonceMessage;
+  final bool clientSignStep;
+  final String? clientMessage;
   final bool isLoading;
   final VoidCallback onRequestNonce;
   final VoidCallback onLogin;
@@ -437,6 +513,8 @@ class _ManualFlow extends StatelessWidget {
     required this.signatureController,
     required this.nonce,
     required this.nonceMessage,
+    required this.clientSignStep,
+    required this.clientMessage,
     required this.isLoading,
     required this.onRequestNonce,
     required this.onLogin,
@@ -446,6 +524,61 @@ class _ManualFlow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+
+    if (clientSignStep) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(children: [
+            Icon(Icons.verified_user_outlined,
+                size: 18, color: theme.colorScheme.primary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text('Step 2 — authorize this client',
+                  style: theme.textTheme.titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w600)),
+            ),
+          ]),
+          const SizedBox(height: 6),
+          Text(
+            'Sign this second message so the Go client accepts you as its owner:',
+            style: theme.textTheme.bodySmall
+                ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.5),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: SelectableText(
+              clientMessage ?? '',
+              style: theme.textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextFormField(
+            controller: signatureController,
+            decoration: const InputDecoration(
+              hintText: '0x... (signature)',
+              prefixIcon: Icon(Icons.draw_outlined),
+              labelText: 'Client signature',
+            ),
+            maxLines: 3,
+          ),
+          const SizedBox(height: 16),
+          GradientButton(
+            text: 'Authorize client',
+            icon: Icons.login,
+            isLoading: isLoading,
+            onPressed: onLogin,
+          ),
+          const SizedBox(height: 8),
+          TextButton(onPressed: onReset, child: const Text('Start over')),
+        ],
+      );
+    }
 
     if (nonce == null) {
       return Column(

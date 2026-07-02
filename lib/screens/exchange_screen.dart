@@ -48,11 +48,6 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
           withBackground: false,
           body: Column(
             children: [
-              if (provider.identityMismatch)
-                _IdentityMismatchBanner(
-                  me: provider.authAddress ?? '',
-                  client: provider.clientIdentity,
-                ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
                 child: GradientButton(
@@ -644,54 +639,5 @@ class _ExchangeCardState extends State<_ExchangeCard> {
       _saving = false;
       if (ok) _editing = false;
     });
-  }
-}
-
-class _IdentityMismatchBanner extends StatelessWidget {
-  final String me;
-  final String client;
-  const _IdentityMismatchBanner({required this.me, required this.client});
-
-  String _s(String a) =>
-      a.length <= 12 ? a : '${a.substring(0, 6)}…${a.substring(a.length - 4)}';
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF7931A).withOpacity(0.12),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFF7931A).withOpacity(0.5)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Icon(Icons.warning_amber_rounded,
-              color: Color(0xFFF7931A), size: 20),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Wrong account for this client',
-                    style: theme.textTheme.bodyMedium
-                        ?.copyWith(fontWeight: FontWeight.w600)),
-                const SizedBox(height: 4),
-                Text(
-                  'Signed in as ${_s(me)}, but this client holds keys for '
-                  '${_s(client)}. Invitations would route to the wrong mailbox — '
-                  'sign in as ${_s(client)} on this window.',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }
