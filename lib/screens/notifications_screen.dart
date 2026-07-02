@@ -139,12 +139,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         _states[message.id] = _MsgState.failed;
       }
     });
+    final ok = sig != null && sig.isNotEmpty;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(sig != null && sig.isNotEmpty
+        content: Text(ok
             ? 'Signature completed'
-            : 'Failed to co-sign'),
-        backgroundColor: sig != null && sig.isNotEmpty ? Colors.green : Colors.red,
+            : (provider.errorMessage ?? 'Failed to co-sign')),
+        backgroundColor: ok ? Colors.green : Colors.red,
+        duration: Duration(seconds: ok ? 3 : 6),
       ),
     );
     if ((sig == null || sig.isEmpty) && mounted) {

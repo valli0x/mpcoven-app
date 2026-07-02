@@ -633,6 +633,10 @@ class AppProvider extends ChangeNotifier {
     _messages = [];
     _accounts = const [];
     _keygenJobs.clear();
+    // Reset loading/error state — otherwise a logout triggered mid-_run (e.g. a
+    // 401 during co-sign) leaves _state==loading, freezing the login button.
+    _state = AppState.idle;
+    _errorMessage = null;
     _clearPersistedSession();
     notifyListeners();
   }
