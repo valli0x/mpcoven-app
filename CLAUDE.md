@@ -67,8 +67,11 @@ lib/
             key_result_card (QR of the wallet ADDRESS), wallet_connect_dialog
 ```
 
-## Auth flow
-`requestNonce(address)` → user signs the `message` field (EIP-191) with MetaMask/WalletConnect/manual → `login(address, signature, nonce)` where **nonce = the `nonce` value, NOT the full message**. JWT (24h) persisted in SharedPreferences (`auth_token`/`auth_address`); `restoreSession()` verifies it by hitting `/v1/pair/pending`.
+## Auth flow — TWO logins (server + client)
+- **Server** (mailbox/pairing, `serverUrl`): `requestNonce(address)` → user signs the `message` (EIP-191) with MetaMask/WalletConnect/manual → `login(address, signature, nonce)` where **nonce = the `nonce` value, NOT the full message**. JWT (24h) in SharedPreferences (`auth_token`/`auth_address`); `restoreSession()` verifies via `/v1/pair/pending`.
+- **Client** (keys/tx, `clientUrl`): the Go client now has its OWN auth (it may be remote — no longer trusted just because it's reachable). After the server login the app does a **SECOND signature**: `clientLogin(address, sign)` → `clientRequestNonce` + `clientLoginRaw` → client JWT stored as `client_token`, attached as `Authorization` to ALL client calls (`_makeRequest` non-server branch). MetaMask/WC sign the 2nd nonce automatically (2nd prompt); manual mode shows a **"Step 2 — authorize this client"** paste step.
+- **Owner binding (client side):** a client that already holds keys only authorizes the address matching its accounts' `pair_my_id`; a fresh client binds to the first login. Wrong address → **403** ("this client is bound to X") surfaced at login, which then `logout()`s to a clean state. So the old heuristic identityMismatch banner/guards were REMOVED — the client rejects a wrong address at the source.
+- `clientIdentityInfo()` → `GET /v1/identity` `{address,has_keys,bound}` (public) if you need to pre-check which address a client wants.
 
 ## Keygen orchestration (provider) — important model
 
