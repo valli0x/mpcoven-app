@@ -50,7 +50,12 @@ class _HomeScreenState extends State<HomeScreen> {
               provider.clearSessionExpired();
             });
           }
-          return LoginScreen(onSettingsPressed: _openSettings);
+          return LoginScreen(
+            onSettingsPressed: _openSettings,
+            clientUrl: widget.clientUrl,
+            serverUrl: widget.serverUrl,
+            onUrlsChanged: widget.onUrlsChanged,
+          );
         }
 
         return Scaffold(

@@ -7,10 +7,25 @@ import '../widgets/app_background.dart';
 import '../widgets/gradient_button.dart';
 import '../widgets/wallet_connect_dialog.dart';
 
+String _short(String a) {
+  final s = a.trim();
+  if (s.length <= 12) return s;
+  return '${s.substring(0, 6)}…${s.substring(s.length - 4)}';
+}
+
 class LoginScreen extends StatefulWidget {
   final VoidCallback onSettingsPressed;
+  final String clientUrl;
+  final String serverUrl;
+  final void Function(String clientUrl, String serverUrl) onUrlsChanged;
 
-  const LoginScreen({super.key, required this.onSettingsPressed});
+  const LoginScreen({
+    super.key,
+    required this.onSettingsPressed,
+    required this.clientUrl,
+    required this.serverUrl,
+    required this.onUrlsChanged,
+  });
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -24,6 +39,51 @@ class _LoginScreenState extends State<LoginScreen> {
   String? _nonceMessage;
   bool _manualMode = false;
   bool _busy = false;
+
+  // "Connecting to" — the client we point at + its bound identity.
+  bool _editClientUrl = false;
+  late final TextEditingController _clientUrlController =
+      TextEditingController(text: widget.clientUrl);
+  Map<String, dynamic>? _clientInfo; // /v1/identity
+  bool _clientProbing = false;
+  bool _clientUnreachable = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _probeClient());
+  }
+
+  @override
+  void didUpdateWidget(covariant LoginScreen old) {
+    super.didUpdateWidget(old);
+    if (old.clientUrl != widget.clientUrl) {
+      _clientUrlController.text = widget.clientUrl;
+      _probeClient();
+    }
+  }
+
+  Future<void> _probeClient() async {
+    setState(() {
+      _clientProbing = true;
+      _clientUnreachable = false;
+    });
+    final info = await context.read<AppProvider>().clientIdentityInfo();
+    if (!mounted) return;
+    setState(() {
+      _clientProbing = false;
+      _clientInfo = info;
+      _clientUnreachable = info == null;
+    });
+  }
+
+  void _saveClientUrl() {
+    final url = _clientUrlController.text.trim();
+    if (url.isEmpty) return;
+    widget.onUrlsChanged(url, widget.serverUrl);
+    setState(() => _editClientUrl = false);
+    // The parent rebuilds ApiService; didUpdateWidget re-probes.
+  }
 
   // Manual two-step: after the server sign-in, a second signature authorizes
   // the Go client itself (which binds to / enforces its owner address).
@@ -47,6 +107,7 @@ class _LoginScreenState extends State<LoginScreen> {
   void dispose() {
     _addressController.dispose();
     _signatureController.dispose();
+    _clientUrlController.dispose();
     super.dispose();
   }
 
@@ -105,7 +166,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 20),
+                _buildConnectingCard(theme),
+                const SizedBox(height: 20),
 
                 if (_hasMetaMask && !_manualMode) ...[
                   _MetaMaskButton(
@@ -225,6 +288,149 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildConnectingCard(ThemeData theme) {
+    final info = _clientInfo;
+    final bound = info?['bound'] == true;
+    final hasKeys = info?['has_keys'] == true;
+    final authReq = info?['auth_required'] != false;
+    final owner = (info?['address'] ?? '').toString();
+
+    Widget status;
+    if (_clientProbing) {
+      status = Row(children: [
+        const SizedBox(
+            width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+        const SizedBox(width: 8),
+        Text('Checking client…',
+            style: theme.textTheme.bodySmall
+                ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+      ]);
+    } else if (_clientUnreachable) {
+      status = Row(children: [
+        Icon(Icons.cloud_off_rounded, size: 15, color: theme.colorScheme.error),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text('Client not reachable — check the address',
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.error)),
+        ),
+      ]);
+    } else if (bound && owner.isNotEmpty) {
+      status = Row(children: [
+        Icon(Icons.verified_user_rounded,
+            size: 15, color: theme.colorScheme.primary),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            'Owned by ${_short(owner)} — sign in with this account'
+            '${authReq ? '' : ' · auth off'}',
+            style: theme.textTheme.bodySmall
+                ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+          ),
+        ),
+      ]);
+    } else {
+      status = Row(children: [
+        Icon(Icons.fiber_new_rounded,
+            size: 16, color: theme.colorScheme.tertiary),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            hasKeys
+                ? 'Client has keys but is unbound'
+                : 'Fresh client — first sign-in becomes its owner'
+                    '${authReq ? '' : ' · auth off'}',
+            style: theme.textTheme.bodySmall
+                ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+          ),
+        ),
+      ]);
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.4),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+            color: theme.colorScheme.outlineVariant.withOpacity(0.4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.dns_rounded, size: 16, color: theme.colorScheme.primary),
+              const SizedBox(width: 8),
+              Text('Connecting to',
+                  style: theme.textTheme.labelMedium
+                      ?.copyWith(fontWeight: FontWeight.w600)),
+              const Spacer(),
+              if (!_editClientUrl)
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  icon: const Icon(Icons.edit_outlined, size: 16),
+                  tooltip: 'Change client address',
+                  onPressed: () => setState(() => _editClientUrl = true),
+                ),
+              if (!_editClientUrl)
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.only(left: 8),
+                  constraints: const BoxConstraints(),
+                  icon: _clientProbing
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.refresh, size: 16),
+                  tooltip: 'Re-check',
+                  onPressed: _clientProbing ? null : _probeClient,
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (_editClientUrl) ...[
+            TextField(
+              controller: _clientUrlController,
+              autofocus: true,
+              decoration: const InputDecoration(
+                isDense: true,
+                hintText: 'http://localhost:8080',
+                prefixIcon: Icon(Icons.link, size: 18),
+              ),
+              onSubmitted: (_) => _saveClientUrl(),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: () => setState(() {
+                    _editClientUrl = false;
+                    _clientUrlController.text = widget.clientUrl;
+                  }),
+                  child: const Text('Cancel'),
+                ),
+                const SizedBox(width: 4),
+                FilledButton(
+                    onPressed: _saveClientUrl, child: const Text('Save')),
+              ],
+            ),
+          ] else ...[
+            Text(widget.clientUrl,
+                style: theme.textTheme.bodyMedium
+                    ?.copyWith(fontFamily: 'monospace')),
+            const SizedBox(height: 8),
+            status,
+          ],
+        ],
+      ),
     );
   }
 
