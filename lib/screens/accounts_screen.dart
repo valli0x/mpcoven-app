@@ -216,6 +216,46 @@ class _AccountsScreenState extends State<AccountsScreen> {
                         ),
                       ],
                     ),
+                    Builder(builder: (context) {
+                      final me = context.select<AppProvider, String?>((p) => p.authAddress);
+                      if (me == null || me.isEmpty) return const SizedBox.shrink();
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(10),
+                          onTap: () {
+                            Clipboard.setData(ClipboardData(text: me));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Address copied'),
+                                duration: Duration(seconds: 2),
+                              ),
+                            );
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Row(
+                              children: [
+                                Icon(Icons.account_circle_outlined,
+                                    size: 16, color: theme.colorScheme.onSurfaceVariant),
+                                const SizedBox(width: 6),
+                                Flexible(
+                                  child: Text(
+                                    '${me.substring(0, 8)}…${me.substring(me.length - 6)}',
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Icon(Icons.copy_rounded,
+                                    size: 14, color: theme.colorScheme.onSurfaceVariant),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
                     if (accounts.isNotEmpty) ...[
                       const SizedBox(height: 8),
                       TextField(
