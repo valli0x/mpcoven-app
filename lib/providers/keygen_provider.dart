@@ -155,6 +155,16 @@ class AppProvider extends ChangeNotifier {
   /// to each distinct partner and marks that side "invited".
   Future<bool> proposeExchange(ExchangeEntry e) async {
     final me = (_authAddress ?? '').toLowerCase();
+    final aAcc = escrowAccountFor(e.addressA);
+    final bAcc = escrowAccountFor(e.addressB);
+    // The identity this client actually holds keys for (all accounts share it).
+    final clientId = ((aAcc ?? bAcc)?.pairMyId ?? '').trim();
+    if (aAcc == null && bAcc == null) {
+      _errorMessage =
+          'These addresses are not escrow accounts on this client (${_apiService.baseUrl}).';
+      notifyListeners();
+      return false;
+    }
     final sides = <String, String>{}; // partner -> side label (for status)
     final pa = escrowPartnerAddress(e.addressA);
     final pb = escrowPartnerAddress(e.addressB);
@@ -165,16 +175,31 @@ class AppProvider extends ChangeNotifier {
       sides[pb] = 'b';
     }
     if (sides.isEmpty) {
-      _errorMessage =
-          'No counterparty to invite — the escrow partner resolves to your own '
-          'address. Check you are signed in with the correct account for this client.';
+      final selfPartner = pa.toLowerCase() == me || pb.toLowerCase() == me;
+      if (selfPartner && clientId.isNotEmpty && clientId.toLowerCase() != me) {
+        final cid = clientId.startsWith('0x') ? clientId : '0x$clientId';
+        _errorMessage =
+            'The exchange partner is your own address. You are signed in as '
+            '$_authAddress, but this client holds keys for $cid — sign in as $cid '
+            'to invite the real partner.';
+      } else if (selfPartner) {
+        _errorMessage =
+            'The exchange partner resolves to your own address — an escrow swap '
+            'needs a different counterparty on each side.';
+      } else {
+        _errorMessage = 'Nothing to invite — both sides are already accepted.';
+      }
       notifyListeners();
       return false;
     }
     try {
+      final unpaired = <String>[];
       for (final partner in sides.keys) {
         final pairId = findPairIdWith(partner);
-        if (pairId == null) continue;
+        if (pairId == null) {
+          unpaired.add(partner);
+          continue;
+        }
         await _apiService.sendMailboxMessage(
           to: partner,
           pairId: pairId,
@@ -187,9 +212,17 @@ class AppProvider extends ChangeNotifier {
           },
         );
       }
+      if (unpaired.length == sides.length) {
+        // Nothing was actually sent — we have no pair with any partner.
+        _errorMessage =
+            'No pair with ${unpaired.map((a) => "${a.substring(0, 8)}…").join(", ")}. '
+            'Create the pairing first (Pairing tab).';
+        notifyListeners();
+        return false;
+      }
       await _apiService.updateExchange(e.id, e.addressA, e.addressB,
-          statusA: pa.isNotEmpty ? 'invited' : null,
-          statusB: pb.isNotEmpty ? 'invited' : null);
+          statusA: (pa.isNotEmpty && !unpaired.contains(pa)) ? 'invited' : null,
+          statusB: (pb.isNotEmpty && !unpaired.contains(pb)) ? 'invited' : null);
       await loadExchanges();
       return true;
     } catch (err) {

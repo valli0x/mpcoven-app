@@ -413,13 +413,17 @@ class _ExchangeCardState extends State<_ExchangeCard> {
   }
 
   Future<void> _propose() async {
+    final provider = context.read<AppProvider>();
     setState(() => _proposing = true);
-    final ok = await context.read<AppProvider>().proposeExchange(entry);
+    final ok = await provider.proposeExchange(entry);
     if (!mounted) return;
     setState(() => _proposing = false);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(ok ? 'Invitations sent' : 'Nothing to invite / no pair'),
+      content: Text(ok
+          ? 'Invitations sent'
+          : (provider.errorMessage ?? 'Nothing to invite / no pair')),
       backgroundColor: ok ? Colors.green : Colors.red,
+      duration: Duration(seconds: ok ? 3 : 7),
     ));
   }
 
