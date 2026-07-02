@@ -687,13 +687,23 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
-  /// Report the client's bound identity {address, has_keys, bound}, or null.
+  /// Report the client's bound identity {address, has_keys, bound, auth_required}.
   Future<Map<String, dynamic>?> clientIdentityInfo() async {
     try {
       return await _apiService.clientIdentity();
     } catch (_) {
       return null;
     }
+  }
+
+  /// Whether the Go client requires its own sign-in. A local client started with
+  /// CLIENT_AUTH=none reports false → the app skips the second signature. If the
+  /// identity call fails we assume true (fail secure).
+  Future<bool> clientAuthRequired() async {
+    final info = await clientIdentityInfo();
+    if (info == null) return true;
+    final v = info['auth_required'];
+    return v is bool ? v : true;
   }
 
   void logout() {

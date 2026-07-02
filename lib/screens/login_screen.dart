@@ -261,7 +261,7 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 
       final loginResult = await provider.login(address, signature, nonceResp.nonce);
-      if (loginResult != null) {
+      if (loginResult != null && await provider.clientAuthRequired()) {
         // Second signature: authenticate to the Go client itself.
         final ok = await provider.clientLogin(
           address,
@@ -299,7 +299,7 @@ class _LoginScreenState extends State<LoginScreen> {
       final signature = await mm.personalSign(nonceResp.message, address);
 
       final loginResult = await provider.login(address, signature, nonceResp.nonce);
-      if (loginResult != null) {
+      if (loginResult != null && await provider.clientAuthRequired()) {
         // Second signature: authenticate to the Go client itself.
         final ok = await provider.clientLogin(
           address,
@@ -340,6 +340,12 @@ class _LoginScreenState extends State<LoginScreen> {
       if (_nonce == null) return;
       final result = await provider.login(addr, sig, _nonce!);
       if (result == null) return;
+      // Local client with CLIENT_AUTH=none: no second signature needed.
+      if (!await provider.clientAuthRequired()) {
+        provider.refreshPairs();
+        provider.refreshAccounts();
+        return;
+      }
       // Phase 2: fetch a client nonce and ask for a second signature.
       final cn = await provider.clientRequestNonce(addr);
       if (cn == null) {
