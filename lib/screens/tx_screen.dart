@@ -248,7 +248,7 @@ class _TxScreenState extends State<TxScreen> {
                     ),
                 ],
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 14),
               AmountField(
                 key: ValueKey('${_token.contract}:$_amountKey'),
                 network: widget.account.network,
