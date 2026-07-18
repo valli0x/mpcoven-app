@@ -426,6 +426,7 @@ class _MessageCard extends StatelessWidget {
               value: _short(escrow, head: 8, tail: 6),
               color: accent,
               mono: true,
+              copyValue: escrow,
             ),
           // Verified To/amount decoded from tx_data (the bytes you actually
           // sign) — not the sender's claimed display values.
@@ -444,6 +445,7 @@ class _MessageCard extends StatelessWidget {
               color: accent,
               mono: true,
               last: true,
+              copyValue: hash,
             ),
         ],
       ),
@@ -573,6 +575,7 @@ class _DetailRow extends StatelessWidget {
   final Color color;
   final bool mono;
   final bool last;
+  final String? copyValue; // full value to copy (row becomes tappable)
 
   const _DetailRow({
     required this.icon,
@@ -581,30 +584,54 @@ class _DetailRow extends StatelessWidget {
     required this.color,
     this.mono = false,
     this.last = false,
+    this.copyValue,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Padding(
-      padding: EdgeInsets.only(bottom: last ? 0 : 10),
-      child: Row(
-        children: [
-          Icon(icon, size: 16, color: color.withValues(alpha: 0.8)),
-          const SizedBox(width: 10),
-          Text(label,
-              style: theme.textTheme.bodySmall
-                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-          const Spacer(),
-          Text(
+    final row = Row(
+      children: [
+        Icon(icon, size: 16, color: color.withValues(alpha: 0.8)),
+        const SizedBox(width: 10),
+        Text(label,
+            style: theme.textTheme.bodySmall
+                ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+        const Spacer(),
+        Flexible(
+          child: Text(
             value,
+            textAlign: TextAlign.right,
+            overflow: TextOverflow.ellipsis,
             style: theme.textTheme.bodyMedium?.copyWith(
               fontWeight: FontWeight.w600,
               fontFamily: mono ? 'monospace' : null,
             ),
           ),
+        ),
+        if (copyValue != null && copyValue!.isNotEmpty) ...[
+          const SizedBox(width: 6),
+          Icon(Icons.copy_rounded,
+              size: 13, color: theme.colorScheme.onSurfaceVariant),
         ],
-      ),
+      ],
+    );
+    return Padding(
+      padding: EdgeInsets.only(bottom: last ? 0 : 10),
+      child: (copyValue != null && copyValue!.isNotEmpty)
+          ? InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () {
+                Clipboard.setData(ClipboardData(text: copyValue!));
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  content: Text('$label copied'),
+                  duration: const Duration(seconds: 2),
+                ));
+              },
+              child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2), child: row),
+            )
+          : row,
     );
   }
 }
@@ -694,13 +721,15 @@ class _VerifiedTxDetails extends StatelessWidget {
                 label: 'Token (verified)',
                 value: '${tok.symbol}  ${_short(tokenContract)}',
                 color: accent,
-                mono: true),
+                mono: true,
+                copyValue: tokenContract),
           _DetailRow(
               icon: Icons.send_outlined,
               label: 'To (verified)',
               value: _short(to),
               color: toMismatch ? Colors.red : Colors.green,
-              mono: true),
+              mono: true,
+              copyValue: to),
           if (amountText.isNotEmpty)
             _DetailRow(
                 icon: Icons.payments_outlined,
