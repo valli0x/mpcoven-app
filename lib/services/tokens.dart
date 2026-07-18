@@ -28,5 +28,5 @@ TokenInfo tokenForContract(String contract) {
   for (final t in kEthTokens) {
     if (t.contract.toLowerCase() == c) return t;
   }
-  return TokenInfo('TOKEN', contract, 18);
+  return TokenInfo('TOKEN', contract, 18, 0xFF8B5CF6);
 }
