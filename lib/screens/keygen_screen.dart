@@ -573,6 +573,7 @@ class _PartnerTile extends StatelessWidget {
     final theme = Theme.of(context);
     final colors = _gradient();
     final glow = colors.first;
+    final alias = context.watch<AppProvider>().aliasFor(address);
 
     return Material(
       color: Colors.transparent,
@@ -641,12 +642,22 @@ class _PartnerTile extends StatelessWidget {
                     ),
                     const SizedBox(height: 1),
                     Text(
-                      _short(address),
+                      alias ?? _short(address),
                       style: theme.textTheme.bodyMedium?.copyWith(
-                        fontFamily: 'monospace',
-                        fontWeight: FontWeight.w500,
+                        fontFamily: alias != null ? null : 'monospace',
+                        fontWeight: FontWeight.w600,
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
+                    if (alias != null)
+                      Text(
+                        _short(address),
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          fontFamily: 'monospace',
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
                   ],
                 ),
               ),
