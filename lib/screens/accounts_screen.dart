@@ -83,11 +83,16 @@ class _AccountsScreenState extends State<AccountsScreen> {
   /// Group accounts by partner address. Returns ordered list of (partner, items).
   List<MapEntry<String, List<AccountMeta>>> _grouped(List<AccountMeta> accounts) {
     final q = _query.trim().toLowerCase();
+    final provider = context.read<AppProvider>();
     final filtered = q.isEmpty
         ? accounts
         : accounts.where((a) {
+            final other = (a.pairOther ?? '');
+            final partner = other.startsWith('0x') ? other : '0x$other';
+            final alias = (provider.aliasFor(partner) ?? '').toLowerCase();
             return a.address.toLowerCase().contains(q) ||
-                (a.pairOther ?? '').toLowerCase().contains(q) ||
+                other.toLowerCase().contains(q) ||
+                alias.contains(q) ||
                 a.network.toLowerCase().contains(q) ||
                 '${a.network}#${a.index}'.toLowerCase().contains(q);
           }).toList();
