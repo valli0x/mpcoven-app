@@ -83,11 +83,30 @@ class _TxScreenState extends State<TxScreen> {
   String get _sym =>
       _token.isNative ? Units.symbol(widget.account.network) : _token.symbol;
 
-  void _useMax() {
+  Future<void> _useMax() async {
     final b = _balanceBase;
     if (b == null || b <= BigInt.zero) return;
+    var sendable = b;
+    // Native ETH: reserve gas (paid from the same balance) so the tx can't fail.
+    // Token transfers pay gas separately in ETH, so their full balance is usable.
+    if (_token.isNative && widget.account.network == 'eth') {
+      try {
+        final gp = await context.read<AppProvider>().apiService.ethGasPriceWei();
+        // 21000 gas × price × 1.5 safety buffer.
+        final reserve = gp * BigInt.from(21000) * BigInt.from(3) ~/ BigInt.two;
+        sendable = b - reserve;
+      } catch (_) {
+        // fall back to a flat 0.0005 ETH reserve if gas price is unavailable
+        sendable = b - BigInt.parse('500000000000000');
+      }
+      if (sendable <= BigInt.zero) {
+        setState(() => _error = 'Balance too low to cover gas');
+        return;
+      }
+    }
+    if (!mounted) return;
     setState(() {
-      _prefill = Units.fromBaseDec(b, _dec);
+      _prefill = Units.fromBaseDec(sendable, _dec);
       _amountKey++; // rebuild AmountField with the prefill
       _resetSent();
     });
@@ -215,12 +234,9 @@ class _TxScreenState extends State<TxScreen> {
                       ),
                     ],
                   ),
-                  // Max only for tokens — gas is paid separately in ETH, so a
-                  // full-balance token transfer is safe. Native ETH must keep
-                  // gas, so no auto-max there.
-                  if (!_token.isNative &&
-                      _balanceBase != null &&
-                      _balanceBase! > BigInt.zero)
+                  // Max: full token balance (gas paid in ETH), or ETH balance
+                  // minus a gas reserve for native sends.
+                  if (_balanceBase != null && _balanceBase! > BigInt.zero)
                     TextButton(
                       onPressed: _useMax,
                       style: TextButton.styleFrom(

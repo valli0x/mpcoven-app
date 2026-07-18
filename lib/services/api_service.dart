@@ -48,6 +48,12 @@ class ApiService {
     return _makeRequest('GET', '/v1/identity');
   }
 
+  /// Current suggested gas price in wei (Ethereum), for Max/gas reservation.
+  Future<BigInt> ethGasPriceWei() async {
+    final resp = await _makeRequest('GET', '/v1/tx/gas-price');
+    return BigInt.tryParse((resp['gas_price'] ?? '0').toString()) ?? BigInt.zero;
+  }
+
   // ── Auth (server) ──
 
   Future<NonceResponse> requestNonce(String address) async {
