@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import '../models/keygen_models.dart';
 import '../providers/keygen_provider.dart';
 import '../widgets/address_balance.dart';
@@ -290,6 +291,15 @@ class _ExchangeCardState extends State<_ExchangeCard> {
                     fontWeight: FontWeight.w500)),
           ),
           _copyBtn(theme, color, addr, 'Address copied'),
+          IconButton(
+            icon: Icon(Icons.info_outline, size: 16, color: color),
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+            tooltip: 'Details',
+            onPressed: () =>
+                _showEscrowDetails(theme, provider, addr, partner, color),
+          ),
           const Spacer(),
         ]),
         // Partner of this escrow + per-side status.
@@ -355,6 +365,124 @@ class _ExchangeCardState extends State<_ExchangeCard> {
         child: Icon(Icons.copy_rounded,
             size: size, color: color.withValues(alpha: 0.8)),
       ),
+    );
+  }
+
+  void _showEscrowDetails(ThemeData theme, AppProvider provider, String addr,
+      String partner, Color color) {
+    final acc = provider.escrowAccountFor(addr);
+    final partnerAlias = partner.isEmpty ? null : provider.aliasFor(partner);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final t = Theme.of(ctx);
+        Widget row(IconData ic, String label, String value, {String? copy}) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Row(children: [
+              Icon(ic, size: 16, color: color),
+              const SizedBox(width: 10),
+              Text(label,
+                  style: t.textTheme.bodySmall
+                      ?.copyWith(color: t.colorScheme.onSurfaceVariant)),
+              const Spacer(),
+              Flexible(
+                child: Text(value,
+                    textAlign: TextAlign.right,
+                    overflow: TextOverflow.ellipsis,
+                    style: t.textTheme.bodyMedium
+                        ?.copyWith(fontWeight: FontWeight.w600)),
+              ),
+              if (copy != null) ...[
+                const SizedBox(width: 6),
+                InkWell(
+                  onTap: () {
+                    Clipboard.setData(ClipboardData(text: copy));
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                        content: Text('Copied'),
+                        duration: Duration(seconds: 2)));
+                  },
+                  child: Icon(Icons.copy_rounded,
+                      size: 14, color: t.colorScheme.onSurfaceVariant),
+                ),
+              ],
+            ]),
+          );
+        }
+
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            child: Container(
+              decoration: BoxDecoration(
+                color: t.colorScheme.surface,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(
+                    color: t.colorScheme.outlineVariant.withValues(alpha: 0.4)),
+              ),
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: t.colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  acc != null
+                      ? 'Escrow ${acc.network.toUpperCase()} #${acc.index}'
+                      : 'Escrow account',
+                  style:
+                      t.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 12),
+                row(Icons.tag, 'Address', _short(addr, head: 8, tail: 8),
+                    copy: addr),
+                if (acc == null)
+                  row(Icons.warning_amber_rounded, 'Note',
+                      'not in your accounts'),
+                if (partner.isNotEmpty)
+                  row(Icons.people_alt_outlined, 'Partner',
+                      partnerAlias ?? _short(partner, head: 8, tail: 6),
+                      copy: partner),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: AddressBalance(
+                      address: addr, accent: color, autoRefresh: false),
+                ),
+                const SizedBox(height: 8),
+                Text('Fund this account',
+                    style: t.textTheme.labelMedium
+                        ?.copyWith(color: t.colorScheme.onSurfaceVariant)),
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: QrImageView(
+                    data: addr,
+                    version: QrVersions.auto,
+                    size: 170,
+                    backgroundColor: Colors.white,
+                    eyeStyle:
+                        QrEyeStyle(eyeShape: QrEyeShape.square, color: color),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Close')),
+              ]),
+            ),
+          ),
+        );
+      },
     );
   }
 
