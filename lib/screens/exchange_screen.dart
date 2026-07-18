@@ -371,13 +371,12 @@ class _ExchangeCardState extends State<_ExchangeCard> {
   void _showEscrowDetails(ThemeData theme, AppProvider provider, String addr,
       String partner, Color color) {
     final acc = provider.escrowAccountFor(addr);
-    // Requested transactions for this escrow: co-sign events whose escrow
-    // address matches, or that belong to THIS exchange's swap (escrow_id).
+    // Requested transactions for THIS escrow account only — match by the escrow
+    // address. (escrow_id is shared by BOTH sides of the swap, so filtering on
+    // it would show the same events for both addresses.)
     provider.loadCosignHistory();
     List<CosignEvent> eventsFor() => provider.cosignHistory
-        .where((e) =>
-            e.escrow.toLowerCase() == addr.toLowerCase() ||
-            (e.escrowId.isNotEmpty && e.escrowId == entry.id))
+        .where((e) => e.escrow.toLowerCase() == addr.toLowerCase())
         .toList();
 
     showModalBottomSheet(
