@@ -10,6 +10,10 @@ class AmountField extends StatefulWidget {
   final Color accent;
   final String label;
   final void Function(BigInt? base) onBaseChanged;
+  // ERC-20 override: when set, amounts use these decimals/symbol and the USD
+  // toggle is hidden (no price feed for arbitrary tokens).
+  final int? decimalsOverride;
+  final String? symbolOverride;
 
   const AmountField({
     super.key,
@@ -17,6 +21,8 @@ class AmountField extends StatefulWidget {
     required this.accent,
     required this.onBaseChanged,
     this.label = 'Amount',
+    this.decimalsOverride,
+    this.symbolOverride,
   });
 
   @override
@@ -49,7 +55,8 @@ class _AmountFieldState extends State<AmountField> {
     _recompute();
   }
 
-  String get _sym => Units.symbol(widget.network);
+  bool get _isToken => widget.decimalsOverride != null;
+  String get _sym => widget.symbolOverride ?? Units.symbol(widget.network);
 
   /// Convert the field text to BASE units and update hint + callback.
   void _recompute() {
@@ -63,7 +70,10 @@ class _AmountFieldState extends State<AmountField> {
       return;
     }
 
-    if (_usdMode) {
+    if (_isToken) {
+      // Token amounts are entered directly in token units (no USD toggle).
+      base = Units.toBaseDec(raw, widget.decimalsOverride!);
+    } else if (_usdMode) {
       // text is USD -> convert to crypto -> base
       final usd = double.tryParse(raw);
       if (usd != null && _unitUsd != null && _unitUsd! > 0) {
@@ -112,21 +122,29 @@ class _AmountFieldState extends State<AmountField> {
             prefixIcon: Icon(_usdMode
                 ? Icons.attach_money
                 : Icons.account_balance_wallet_outlined),
-            suffixIcon: Padding(
-              padding: const EdgeInsets.only(right: 6),
-              child: ToggleButtons(
-                isSelected: [!_usdMode, _usdMode],
-                onPressed: (i) {
-                  setState(() => _usdMode = i == 1);
-                  _recompute();
-                },
-                borderRadius: BorderRadius.circular(8),
-                constraints: const BoxConstraints(minWidth: 44, minHeight: 30),
-                selectedColor: Colors.white,
-                fillColor: widget.accent,
-                children: [Text(_sym), const Text('USD')],
-              ),
-            ),
+            suffixIcon: _isToken
+                ? Padding(
+                    padding: const EdgeInsets.only(right: 14),
+                    child: Text(_sym,
+                        style: theme.textTheme.labelLarge
+                            ?.copyWith(color: widget.accent)),
+                  )
+                : Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: ToggleButtons(
+                      isSelected: [!_usdMode, _usdMode],
+                      onPressed: (i) {
+                        setState(() => _usdMode = i == 1);
+                        _recompute();
+                      },
+                      borderRadius: BorderRadius.circular(8),
+                      constraints:
+                          const BoxConstraints(minWidth: 44, minHeight: 30),
+                      selectedColor: Colors.white,
+                      fillColor: widget.accent,
+                      children: [Text(_sym), const Text('USD')],
+                    ),
+                  ),
           ),
         ),
         Padding(

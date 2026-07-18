@@ -343,11 +343,18 @@ class ApiService {
     required String from,
     required String to,
     required int amount,
+    String? token,
   }) async {
     final response = await _makeRequest(
       'POST',
       '/v1/tx/hash',
-      body: {'network': network, 'from': from, 'to': to, 'amount': amount},
+      body: {
+        'network': network,
+        'from': from,
+        'to': to,
+        'amount': amount,
+        if (token != null && token.isNotEmpty) 'token': token,
+      },
     );
     return TxHashResponse.fromJson(response);
   }

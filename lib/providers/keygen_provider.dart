@@ -415,6 +415,7 @@ class AppProvider extends ChangeNotifier {
     required BigInt amountBase,
     bool viaEscrow = false,
     String? escrowIdOverride,
+    String? token, // ERC-20 contract; null/'' = native ETH
   }) async {
     try {
       // Pollination id for the atomic swap. Prefer an explicit id (e.g. the
@@ -438,6 +439,7 @@ class AppProvider extends ChangeNotifier {
         from: account.address,
         to: toAddress,
         amount: amountBase.toInt(),
+        token: token,
       );
       await notifySignRequest(
         account: account,

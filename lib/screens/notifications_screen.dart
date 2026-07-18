@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/keygen_models.dart';
 import '../providers/keygen_provider.dart';
 import '../services/units.dart';
+import '../services/tokens.dart';
 import '../widgets/page_scaffold.dart';
 
 const _kEth = Color(0xFF627EEA);
@@ -669,16 +670,31 @@ class _VerifiedTxDetails extends StatelessWidget {
         final d = snap.data!;
         final to = (d['to'] ?? '').toString();
         final valueBase = (d['value'] ?? '0').toString();
+        final isErc20 = d['is_erc20'] == true;
+        final tokenContract = (d['token'] ?? '').toString();
+        final tok = isErc20 ? tokenForContract(tokenContract) : null;
         String amountText = '';
         try {
-          amountText = '${Units.fromBase(BigInt.parse(valueBase), network)} '
-              '${Units.symbol(network)}';
+          if (tok != null) {
+            amountText =
+                '${Units.fromBaseDec(BigInt.parse(valueBase), tok.decimals)} ${tok.symbol}';
+          } else {
+            amountText = '${Units.fromBase(BigInt.parse(valueBase), network)} '
+                '${Units.symbol(network)}';
+          }
         } catch (_) {}
         final toMismatch =
             claimedTo.isNotEmpty && to.toLowerCase() != claimedTo.toLowerCase();
         final amtMismatch =
             claimedAmount.isNotEmpty && valueBase != claimedAmount;
         return Column(children: [
+          if (tok != null)
+            _DetailRow(
+                icon: Icons.token_outlined,
+                label: 'Token (verified)',
+                value: '${tok.symbol}  ${_short(tokenContract)}',
+                color: accent,
+                mono: true),
           _DetailRow(
               icon: Icons.send_outlined,
               label: 'To (verified)',

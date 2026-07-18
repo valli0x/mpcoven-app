@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/keygen_models.dart';
 import '../providers/keygen_provider.dart';
+import '../services/tokens.dart';
 import '../widgets/amount_field.dart';
 import '../widgets/gradient_button.dart';
 import '../widgets/page_scaffold.dart';
@@ -40,6 +41,7 @@ class _TxScreenState extends State<TxScreen> {
   bool _sent = false;
   bool _viaEscrow = false;
   String? _error;
+  TokenInfo _token = kNativeEth;
 
   @override
   void initState() {
@@ -113,11 +115,39 @@ class _TxScreenState extends State<TxScreen> {
                 validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
                 onChanged: (_) => _resetSent(),
               ),
+              if (isEth) ...[
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  value: _token.contract,
+                  decoration: const InputDecoration(
+                    labelText: 'Asset',
+                    prefixIcon: Icon(Icons.token_outlined),
+                  ),
+                  items: kEthTokens
+                      .map((t) => DropdownMenuItem(
+                            value: t.contract,
+                            child: Text(t.isNative
+                                ? '${t.symbol} (native)'
+                                : '${t.symbol} · ERC-20'),
+                          ))
+                      .toList(),
+                  onChanged: (v) {
+                    setState(() {
+                      _token = kEthTokens.firstWhere((t) => t.contract == v);
+                      _amountBase = null; // decimals changed
+                      _resetSent();
+                    });
+                  },
+                ),
+              ],
               const SizedBox(height: 16),
               AmountField(
+                key: ValueKey(_token.contract),
                 network: widget.account.network,
                 accent: color,
                 label: 'Amount',
+                decimalsOverride: _token.isNative ? null : _token.decimals,
+                symbolOverride: _token.isNative ? null : _token.symbol,
                 onBaseChanged: (b) {
                   _amountBase = b;
                   _resetSent();
@@ -241,6 +271,7 @@ class _TxScreenState extends State<TxScreen> {
           amountBase: base,
           viaEscrow: _viaEscrow,
           escrowIdOverride: widget.escrowId,
+          token: _token.isNative ? null : _token.contract,
         );
     if (!mounted) return;
     setState(() {

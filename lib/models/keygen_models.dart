@@ -217,17 +217,20 @@ class BalanceCheckRequest {
   final String network;
   final String address;
   final int expected;
+  final String? token; // ERC-20 contract; null/'' = native ETH
 
   BalanceCheckRequest({
     required this.network,
     required this.address,
     required this.expected,
+    this.token,
   });
 
   Map<String, dynamic> toJson() => {
         'network': network,
         'address': address,
         'expected': expected,
+        if (token != null && token!.isNotEmpty) 'token': token,
       };
 }
 

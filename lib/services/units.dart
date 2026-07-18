@@ -10,11 +10,14 @@ class Units {
 
   /// Parse a human decimal string ("0.011") into base units (BigInt).
   /// Returns null if the input isn't a valid non-negative decimal.
-  static BigInt? toBase(String human, String network) {
+  static BigInt? toBase(String human, String network) =>
+      toBaseDec(human, decimals(network));
+
+  /// Like [toBase] but with an explicit decimal count (for ERC-20 tokens).
+  static BigInt? toBaseDec(String human, int dec) {
     final s = human.trim();
     if (s.isEmpty) return null;
     if (!RegExp(r'^\d*\.?\d*$').hasMatch(s) || s == '.') return null;
-    final dec = decimals(network);
     final parts = s.split('.');
     final intPart = parts[0].isEmpty ? '0' : parts[0];
     var fracPart = parts.length > 1 ? parts[1] : '';
@@ -31,9 +34,12 @@ class Units {
   }
 
   /// Format base units (as int or BigInt) into a trimmed human string.
-  static String fromBase(Object base, String network) {
+  static String fromBase(Object base, String network) =>
+      fromBaseDec(base, decimals(network));
+
+  /// Like [fromBase] but with an explicit decimal count (for ERC-20 tokens).
+  static String fromBaseDec(Object base, int dec) {
     final b = base is BigInt ? base : BigInt.from(base as int);
-    final dec = decimals(network);
     final divisor = BigInt.from(10).pow(dec);
     final whole = b ~/ divisor;
     final frac = (b % divisor).toString().padLeft(dec, '0');
