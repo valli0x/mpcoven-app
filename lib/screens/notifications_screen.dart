@@ -597,8 +597,10 @@ class _DetailRow extends StatelessWidget {
         Text(label,
             style: theme.textTheme.bodySmall
                 ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-        const Spacer(),
-        Flexible(
+        const SizedBox(width: 12),
+        // Value fills all space between the label and the fixed icon slot and
+        // right-aligns — so every row's value ends at the same edge.
+        Expanded(
           child: Text(
             value,
             textAlign: TextAlign.right,
