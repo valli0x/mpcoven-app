@@ -174,7 +174,6 @@ class _KeygenScreenState extends State<KeygenScreen> {
                     const SizedBox(height: 28),
                     GradientButton(
                       text: 'Generate Shared Wallet',
-                      icon: Icons.auto_awesome,
                       isLoading: false,
                       gradientColors: _selectedKeyType == KeyType.ecdsa
                           ? [const Color(0xFF627EEA), const Color(0xFF8B5CF6)]
