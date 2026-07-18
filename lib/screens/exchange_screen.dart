@@ -469,42 +469,49 @@ class _ExchangeCardState extends State<_ExchangeCard> {
           '${Units.symbol(e.network)}';
     } catch (_) {}
     Widget kv(IconData ic, String label, String value, {String? copy}) => Padding(
-          padding: const EdgeInsets.symmetric(vertical: 3),
+          padding: const EdgeInsets.symmetric(vertical: 5),
           child: Row(children: [
-            Icon(ic, size: 14, color: color.withValues(alpha: 0.8)),
-            const SizedBox(width: 8),
+            Icon(ic, size: 16, color: color.withValues(alpha: 0.85)),
+            const SizedBox(width: 9),
             Text(label,
-                style: t.textTheme.labelSmall
+                style: t.textTheme.bodyMedium
                     ?.copyWith(color: t.colorScheme.onSurfaceVariant)),
-            const Spacer(),
-            Flexible(
+            const SizedBox(width: 12),
+            Expanded(
               child: Text(value,
                   textAlign: TextAlign.right,
                   overflow: TextOverflow.ellipsis,
-                  style: t.textTheme.bodySmall
-                      ?.copyWith(fontWeight: FontWeight.w600)),
+                  style: t.textTheme.bodyLarge?.copyWith(
+                      fontWeight: FontWeight.w600, fontFamily: 'monospace')),
             ),
-            if (copy != null && copy.isNotEmpty) ...[
-              const SizedBox(width: 6),
-              InkWell(
-                onTap: () {
-                  Clipboard.setData(ClipboardData(text: copy));
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                      content: Text('Copied'),
-                      duration: Duration(seconds: 2)));
-                },
-                child: Icon(Icons.copy_rounded,
-                    size: 13, color: t.colorScheme.onSurfaceVariant),
-              ),
-            ],
+            SizedBox(
+              width: 22,
+              child: (copy != null && copy.isNotEmpty)
+                  ? Align(
+                      alignment: Alignment.centerRight,
+                      child: InkWell(
+                        onTap: () {
+                          Clipboard.setData(ClipboardData(text: copy));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                  content: Text('Copied'),
+                                  duration: Duration(seconds: 2)));
+                        },
+                        child: Icon(Icons.copy_rounded,
+                            size: 15, color: t.colorScheme.onSurfaceVariant),
+                      ),
+                    )
+                  : null,
+            ),
           ]),
         );
 
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: t.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
-        borderRadius: BorderRadius.circular(14),
+        color: t.colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
@@ -512,15 +519,22 @@ class _ExchangeCardState extends State<_ExchangeCard> {
           const SizedBox(width: 6),
           _cosignStatusChip(t, e.status),
         ]),
-        const SizedBox(height: 6),
+        if (amt.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Text(amt,
+              style: t.textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold, color: color)),
+        ],
+        const SizedBox(height: 8),
+        Divider(color: t.colorScheme.outlineVariant.withValues(alpha: 0.3)),
+        const SizedBox(height: 2),
         if (e.to.isNotEmpty)
-          kv(Icons.send_outlined, 'To', _short(e.to, head: 8, tail: 6),
+          kv(Icons.send_outlined, 'To', _short(e.to, head: 10, tail: 8),
               copy: e.to),
-        if (amt.isNotEmpty) kv(Icons.payments_outlined, 'Amount', amt),
         if (e.hash.isNotEmpty)
-          kv(Icons.tag, 'Hash', _short(e.hash, head: 8, tail: 6), copy: e.hash),
+          kv(Icons.tag, 'Hash', _short(e.hash, head: 10, tail: 8), copy: e.hash),
         if (e.txHash.isNotEmpty)
-          kv(Icons.link, 'Tx', _short(e.txHash, head: 8, tail: 6),
+          kv(Icons.link, 'Tx', _short(e.txHash, head: 10, tail: 8),
               copy: e.txHash),
       ]),
     );
