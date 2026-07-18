@@ -609,11 +609,18 @@ class _DetailRow extends StatelessWidget {
             ),
           ),
         ),
-        if (copyValue != null && copyValue!.isNotEmpty) ...[
-          const SizedBox(width: 6),
-          Icon(Icons.copy_rounded,
-              size: 13, color: theme.colorScheme.onSurfaceVariant),
-        ],
+        // Fixed trailing slot on EVERY row so value right-edges align whether
+        // or not the row is copyable.
+        SizedBox(
+          width: 20,
+          child: (copyValue != null && copyValue!.isNotEmpty)
+              ? Align(
+                  alignment: Alignment.centerRight,
+                  child: Icon(Icons.copy_rounded,
+                      size: 13, color: theme.colorScheme.onSurfaceVariant),
+                )
+              : null,
+        ),
       ],
     );
     return Padding(
