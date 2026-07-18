@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:qr_flutter/qr_flutter.dart';
+import '../services/units.dart';
 import '../models/keygen_models.dart';
 import '../providers/keygen_provider.dart';
 import '../widgets/address_balance.dart';
@@ -371,50 +371,27 @@ class _ExchangeCardState extends State<_ExchangeCard> {
   void _showEscrowDetails(ThemeData theme, AppProvider provider, String addr,
       String partner, Color color) {
     final acc = provider.escrowAccountFor(addr);
-    final partnerAlias = partner.isEmpty ? null : provider.aliasFor(partner);
+    // Requested transactions for this escrow: co-sign events whose escrow
+    // address matches, or that belong to THIS exchange's swap (escrow_id).
+    provider.loadCosignHistory();
+    List<CosignEvent> eventsFor() => provider.cosignHistory
+        .where((e) =>
+            e.escrow.toLowerCase() == addr.toLowerCase() ||
+            (e.escrowId.isNotEmpty && e.escrowId == entry.id))
+        .toList();
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
+      isScrollControlled: true,
       builder: (ctx) {
         final t = Theme.of(ctx);
-        Widget row(IconData ic, String label, String value, {String? copy}) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 6),
-            child: Row(children: [
-              Icon(ic, size: 16, color: color),
-              const SizedBox(width: 10),
-              Text(label,
-                  style: t.textTheme.bodySmall
-                      ?.copyWith(color: t.colorScheme.onSurfaceVariant)),
-              const Spacer(),
-              Flexible(
-                child: Text(value,
-                    textAlign: TextAlign.right,
-                    overflow: TextOverflow.ellipsis,
-                    style: t.textTheme.bodyMedium
-                        ?.copyWith(fontWeight: FontWeight.w600)),
-              ),
-              if (copy != null) ...[
-                const SizedBox(width: 6),
-                InkWell(
-                  onTap: () {
-                    Clipboard.setData(ClipboardData(text: copy));
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                        content: Text('Copied'),
-                        duration: Duration(seconds: 2)));
-                  },
-                  child: Icon(Icons.copy_rounded,
-                      size: 14, color: t.colorScheme.onSurfaceVariant),
-                ),
-              ],
-            ]),
-          );
-        }
-
         return SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
             child: Container(
+              constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(ctx).size.height * 0.7),
               decoration: BoxDecoration(
                 color: t.colorScheme.surface,
                 borderRadius: BorderRadius.circular(24),
@@ -431,50 +408,50 @@ class _ExchangeCardState extends State<_ExchangeCard> {
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
-                const SizedBox(height: 16),
-                Text(
-                  acc != null
-                      ? 'Escrow ${acc.network.toUpperCase()} #${acc.index}'
-                      : 'Escrow account',
-                  style:
-                      t.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-                ),
+                const SizedBox(height: 14),
+                Row(children: [
+                  Icon(Icons.receipt_long_outlined, size: 18, color: color),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      acc != null
+                          ? 'Requests — ${acc.network.toUpperCase()} #${acc.index}'
+                          : 'Requested transactions',
+                      style: t.textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ]),
+                const SizedBox(height: 4),
+                Text(_short(addr, head: 10, tail: 8),
+                    style: t.textTheme.labelSmall?.copyWith(
+                        fontFamily: 'monospace',
+                        color: t.colorScheme.onSurfaceVariant)),
                 const SizedBox(height: 12),
-                row(Icons.tag, 'Address', _short(addr, head: 8, tail: 8),
-                    copy: addr),
-                if (acc == null)
-                  row(Icons.warning_amber_rounded, 'Note',
-                      'not in your accounts'),
-                if (partner.isNotEmpty)
-                  row(Icons.people_alt_outlined, 'Partner',
-                      partnerAlias ?? _short(partner, head: 8, tail: 6),
-                      copy: partner),
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: AddressBalance(
-                      address: addr, accent: color, autoRefresh: false),
+                Flexible(
+                  child: Consumer<AppProvider>(
+                    builder: (_, p, __) {
+                      final events = eventsFor()
+                        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+                      if (events.isEmpty) {
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 24),
+                          child: Text('No transaction requests for this account yet',
+                              style: t.textTheme.bodySmall?.copyWith(
+                                  color: t.colorScheme.onSurfaceVariant)),
+                        );
+                      }
+                      return ListView.separated(
+                        shrinkWrap: true,
+                        itemCount: events.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        itemBuilder: (_, i) =>
+                            _txRequestCard(t, color, events[i]),
+                      );
+                    },
+                  ),
                 ),
-                const SizedBox(height: 8),
-                Text('Fund this account',
-                    style: t.textTheme.labelMedium
-                        ?.copyWith(color: t.colorScheme.onSurfaceVariant)),
                 const SizedBox(height: 10),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: QrImageView(
-                    data: addr,
-                    version: QrVersions.auto,
-                    size: 170,
-                    backgroundColor: Colors.white,
-                    eyeStyle:
-                        QrEyeStyle(eyeShape: QrEyeShape.square, color: color),
-                  ),
-                ),
-                const SizedBox(height: 12),
                 TextButton(
                     onPressed: () => Navigator.pop(ctx),
                     child: const Text('Close')),
@@ -483,6 +460,116 @@ class _ExchangeCardState extends State<_ExchangeCard> {
           ),
         );
       },
+    );
+  }
+
+  Widget _txRequestCard(ThemeData t, Color color, CosignEvent e) {
+    String amt = '';
+    try {
+      amt = '${Units.fromBase(BigInt.parse(e.amount), e.network)} '
+          '${Units.symbol(e.network)}';
+    } catch (_) {}
+    Widget kv(IconData ic, String label, String value, {String? copy}) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 3),
+          child: Row(children: [
+            Icon(ic, size: 14, color: color.withValues(alpha: 0.8)),
+            const SizedBox(width: 8),
+            Text(label,
+                style: t.textTheme.labelSmall
+                    ?.copyWith(color: t.colorScheme.onSurfaceVariant)),
+            const Spacer(),
+            Flexible(
+              child: Text(value,
+                  textAlign: TextAlign.right,
+                  overflow: TextOverflow.ellipsis,
+                  style: t.textTheme.bodySmall
+                      ?.copyWith(fontWeight: FontWeight.w600)),
+            ),
+            if (copy != null && copy.isNotEmpty) ...[
+              const SizedBox(width: 6),
+              InkWell(
+                onTap: () {
+                  Clipboard.setData(ClipboardData(text: copy));
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                      content: Text('Copied'),
+                      duration: Duration(seconds: 2)));
+                },
+                child: Icon(Icons.copy_rounded,
+                    size: 13, color: t.colorScheme.onSurfaceVariant),
+              ),
+            ],
+          ]),
+        );
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: t.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          _roleChip(t, e.role),
+          const SizedBox(width: 6),
+          _cosignStatusChip(t, e.status),
+        ]),
+        const SizedBox(height: 6),
+        if (e.to.isNotEmpty)
+          kv(Icons.send_outlined, 'To', _short(e.to, head: 8, tail: 6),
+              copy: e.to),
+        if (amt.isNotEmpty) kv(Icons.payments_outlined, 'Amount', amt),
+        if (e.hash.isNotEmpty)
+          kv(Icons.tag, 'Hash', _short(e.hash, head: 8, tail: 6), copy: e.hash),
+        if (e.txHash.isNotEmpty)
+          kv(Icons.link, 'Tx', _short(e.txHash, head: 8, tail: 6),
+              copy: e.txHash),
+      ]),
+    );
+  }
+
+  Widget _cosignStatusChip(ThemeData t, String status) {
+    Color c;
+    switch (status) {
+      case 'completed':
+      case 'broadcast':
+        c = Colors.green;
+        break;
+      case 'sent':
+      case 'escrow-await':
+        c = Colors.orange;
+        break;
+      case 'failed':
+        c = Colors.red;
+        break;
+      default:
+        c = t.colorScheme.onSurfaceVariant;
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: c.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(status.isEmpty ? '—' : status,
+          style: TextStyle(color: c, fontSize: 10, fontWeight: FontWeight.bold)),
+    );
+  }
+
+  Widget _roleChip(ThemeData t, String role) {
+    final c = role == 'initiator'
+        ? _kEth
+        : role == 'acceptor'
+            ? Colors.green
+            : t.colorScheme.onSurfaceVariant;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: c.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(role.isEmpty ? '—' : role,
+          style: t.textTheme.labelSmall
+              ?.copyWith(color: c, fontWeight: FontWeight.w600)),
     );
   }
 
