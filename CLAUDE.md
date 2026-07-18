@@ -122,12 +122,13 @@ A 2-of-2 transaction is signed jointly; broadcasting needs the full tx, so the p
   validate. Activity `escrow-await` → "Check escrow" (`POST /v1/escrow/check {id,pub}`) → on release `completeCosign`
   → `completed` → Send Transaction. BOTH parties must run the withdrawal (each from the escrow the other funded).
 - Pollination id = exchange.id ⇒ multiple concurrent swaps OK. (Direct checkbox path used pairId = one-per-pair; now removed.)
-- NOT yet live-verified: whether server `validation.Validate` accepts the 65-byte SigEthereum format in pollination.
+- Signature-format mismatch FIXED: accept returns `escrow_signature` (CMP `GetSigByte`, the only format `validation.Validate` verifies); the app deposits THAT, and on release converts back via client `POST /v1/sig/ethereum` before broadcast. Validation unit tests pin the contract. Still to do: a live two-party swap up to a real release.
 
 ## Open items / NOT done yet (don't forget after a reset)
 - **Escrow swap not live-verified end-to-end**: a full two-party swap up to a real pollination RELEASE has not been
-  run. The OPEN risk is whether server `validation.Validate` accepts the 65-byte `SigEthereum` (r‖s‖v) flower format —
-  test A↔B, and adjust the sig format in pollination if it rejects.
+  run. (The former format blocker is FIXED — escrow now carries the CMP `escrow_signature`; see the co-sign section.)
+  Remaining HIGH items from review: flower overwrite/no depositor binding (server escrow.go), TOCTOU race in the
+  one-co-sign guard + FROST branch not guarded, hash==tx_data guard skippable when tx_data omitted (make it required).
 - **timebox** (time-locked unilateral fallback if the counterparty never deposits a flower) — endpoints exist on the
   server (`/v1/timebox`), but NOT wired into the app. Intentionally deferred.
 - **Explicit confirm dialog** before each co-sign (showing verified From/To/Amount) — discussed, not built.
