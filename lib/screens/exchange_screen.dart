@@ -525,7 +525,8 @@ class _ExchangeCardState extends State<_ExchangeCard> {
 
   /// Searchable picker over MY accounts (handles hundreds without scrolling).
   Future<void> _pickAccount(TextEditingController target) async {
-    final accounts = context.read<AppProvider>().accounts;
+    final provider = context.read<AppProvider>();
+    final accounts = provider.accounts;
     final picked = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
@@ -558,8 +559,14 @@ class _ExchangeCardState extends State<_ExchangeCard> {
                       final items = accounts.where((a) {
                         if (q.isEmpty) return true;
                         final label = '${a.network} #${a.index}'.toLowerCase();
+                        final partner =
+                            provider.escrowPartnerAddress(a.address);
+                        final partnerName =
+                            (provider.aliasFor(partner) ?? '').toLowerCase();
                         return a.address.toLowerCase().contains(q) ||
-                            label.contains(q);
+                            label.contains(q) ||
+                            partner.toLowerCase().contains(q) ||
+                            partnerName.contains(q);
                       }).toList();
                       return ListView.builder(
                         shrinkWrap: true,
@@ -567,13 +574,40 @@ class _ExchangeCardState extends State<_ExchangeCard> {
                         itemBuilder: (_, i) {
                           final a = items[i];
                           final isEth = a.network == 'eth';
+                          final partner =
+                              provider.escrowPartnerAddress(a.address);
+                          final partnerName = provider.aliasFor(partner);
                           return ListTile(
                             leading: Icon(
                                 isEth
                                     ? Icons.diamond_outlined
                                     : Icons.currency_bitcoin,
                                 color: isEth ? _kEth : _kBtc),
-                            title: Text('${a.network.toUpperCase()} #${a.index}'),
+                            title: Row(
+                              children: [
+                                Text('${a.network.toUpperCase()} #${a.index}'),
+                                if (partner.isNotEmpty) ...[
+                                  const SizedBox(width: 8),
+                                  Flexible(
+                                    child: Text(
+                                      '· ${partnerName ?? _short(partner, head: 6, tail: 4)}',
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: partnerName != null
+                                            ? _kEth
+                                            : Theme.of(ctx)
+                                                .colorScheme
+                                                .onSurfaceVariant,
+                                        fontWeight: partnerName != null
+                                            ? FontWeight.w600
+                                            : FontWeight.normal,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
                             subtitle: Text(_short(a.address, head: 10, tail: 8),
                                 style:
                                     const TextStyle(fontFamily: 'monospace')),
