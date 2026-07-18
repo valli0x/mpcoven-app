@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import '../models/keygen_models.dart';
 import '../providers/keygen_provider.dart';
 import '../widgets/address_balance.dart';
@@ -795,6 +796,15 @@ class _AccountRow extends StatelessWidget {
                   },
                 ),
                 _ActionTile(
+                  icon: Icons.qr_code_rounded,
+                  color: color,
+                  label: 'Receive (show QR)',
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _showReceiveQr(context, color);
+                  },
+                ),
+                _ActionTile(
                   icon: Icons.send_rounded,
                   color: color,
                   label: 'Send Transaction',
@@ -817,6 +827,100 @@ class _AccountRow extends StatelessWidget {
                 ),
               ],
               ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showReceiveQr(BuildContext context, Color color) {
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        return Dialog(
+          backgroundColor: theme.colorScheme.surface,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Receive ${account.network.toUpperCase()} #${account.index}',
+                  style: theme.textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Scan or copy to fund this account',
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                ),
+                const SizedBox(height: 18),
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: QrImageView(
+                    data: account.address,
+                    version: QrVersions.auto,
+                    size: 220,
+                    backgroundColor: Colors.white,
+                    eyeStyle: QrEyeStyle(
+                        eyeShape: QrEyeShape.square, color: color),
+                    dataModuleStyle: QrDataModuleStyle(
+                      dataModuleShape: QrDataModuleShape.square,
+                      color: Colors.black87,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () {
+                    Clipboard.setData(ClipboardData(text: account.address));
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                      content: Text('Address copied'),
+                      duration: Duration(seconds: 2),
+                    ));
+                  },
+                  child: Container(
+                    width: double.infinity,
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerHighest
+                          .withOpacity(0.5),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            account.address,
+                            style: theme.textTheme.bodySmall
+                                ?.copyWith(fontFamily: 'monospace'),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Icon(Icons.copy_rounded,
+                            size: 16,
+                            color: theme.colorScheme.onSurfaceVariant),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Close'),
+                ),
+              ],
             ),
           ),
         );
