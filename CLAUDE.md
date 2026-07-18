@@ -135,10 +135,7 @@ A 2-of-2 transaction is signed jointly; broadcasting needs the full tx, so the p
 - **timebox** (time-locked unilateral fallback if the counterparty never deposits a flower) — endpoints exist on the
   server (`/v1/timebox`), but NOT wired into the app. Intentionally deferred.
 - **Explicit confirm dialog** before each co-sign (showing verified From/To/Amount) — discussed, not built.
-- **ERC-20 / USDT not supported**: only NATIVE ETH and BTC. `createEthereumTxHash` builds `NewTransaction(..., nil)`
-  (no `data`, gas 21000) and balance uses `BalanceAt` (native). To add: encode `transfer(to,amount)` into `data`,
-  `to`=token contract, value 0, gas ~65k, token decimals; teach `/v1/tx/decode` + balance about tokens. MPC signing
-  itself is token-agnostic (signs any hash).
+- **ERC-20 / USDT NOW supported** (backend 57778dc, app f3050a8): `client/erc20.go` builds `transfer(to,amount)` calldata; `/v1/tx/hash` takes a `token` contract (value 0, gas 65k), `/v1/tx/decode` returns `is_erc20`+real recipient/amount from calldata (verify-what-you-sign holds), `/v1/balance/check` reads `balanceOf`. App: `services/tokens.dart` (USDT/USDC/DAI mainnet), tx_screen asset picker, decimals-aware AmountField, verified token display in Notifications. Broadcast via tx_data unchanged. MPC signing was already token-agnostic (signs any hash). NOT done: per-account token BALANCE display in the accounts list (only the native ETH balance shows there); BTC/FROST is native only.
 
 ## Exchange = shared object (per-side)
 - An Exchange links TWO escrow accounts; each side has its OWN partner (derived locally from accounts) + invite status.
