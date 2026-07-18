@@ -23,7 +23,10 @@ class AmountField extends StatefulWidget {
     this.label = 'Amount',
     this.decimalsOverride,
     this.symbolOverride,
+    this.initialText,
   });
+
+  final String? initialText;
 
   @override
   State<AmountField> createState() => _AmountFieldState();
@@ -39,6 +42,10 @@ class _AmountFieldState extends State<AmountField> {
   @override
   void initState() {
     super.initState();
+    if (widget.initialText != null && widget.initialText!.isNotEmpty) {
+      _controller.text = widget.initialText!;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _recompute());
+    }
     _loadPrice();
   }
 

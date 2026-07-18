@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../models/keygen_models.dart';
 import '../providers/keygen_provider.dart';
 import '../services/tokens.dart';
+import '../services/units.dart';
 import '../widgets/amount_field.dart';
 import '../widgets/gradient_button.dart';
 import '../widgets/page_scaffold.dart';
@@ -43,10 +44,53 @@ class _TxScreenState extends State<TxScreen> {
   String? _error;
   TokenInfo _token = kNativeEth;
 
+  BigInt? _balanceBase;
+  bool _loadingBal = false;
+  String? _prefill;
+  int _amountKey = 0;
+
   @override
   void initState() {
     super.initState();
     _viaEscrow = widget.initialViaEscrow;
+    _loadBalance();
+  }
+
+  Future<void> _loadBalance() async {
+    setState(() {
+      _loadingBal = true;
+      _balanceBase = null;
+    });
+    try {
+      final resp = await context.read<AppProvider>().apiService.checkBalance(
+            BalanceCheckRequest(
+              network: widget.account.network,
+              address: widget.account.address,
+              expected: 0,
+              token: _token.isNative ? null : _token.contract,
+            ),
+          );
+      if (mounted) setState(() => _balanceBase = BigInt.from(resp.balance));
+    } catch (_) {
+      // leave balance null (unknown)
+    } finally {
+      if (mounted) setState(() => _loadingBal = false);
+    }
+  }
+
+  int get _dec =>
+      _token.isNative ? Units.decimals(widget.account.network) : _token.decimals;
+  String get _sym =>
+      _token.isNative ? Units.symbol(widget.account.network) : _token.symbol;
+
+  void _useMax() {
+    final b = _balanceBase;
+    if (b == null || b <= BigInt.zero) return;
+    setState(() {
+      _prefill = Units.fromBaseDec(b, _dec);
+      _amountKey++; // rebuild AmountField with the prefill
+      _resetSent();
+    });
   }
 
   @override
@@ -135,19 +179,66 @@ class _TxScreenState extends State<TxScreen> {
                         setState(() {
                           _token = t;
                           _amountBase = null; // decimals changed
+                          _prefill = null;
+                          _amountKey++;
                           _resetSent();
                         });
+                        _loadBalance();
                       },
                     );
                   }).toList(),
                 ),
               ],
               const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.account_balance_wallet_outlined,
+                          size: 14, color: theme.colorScheme.onSurfaceVariant),
+                      const SizedBox(width: 6),
+                      Text(
+                        _loadingBal
+                            ? 'Available: …'
+                            : _balanceBase == null
+                                ? 'Available: —'
+                                : 'Available: ${Units.fromBaseDec(_balanceBase!, _dec)} $_sym',
+                        style: theme.textTheme.labelMedium?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant),
+                      ),
+                      const SizedBox(width: 4),
+                      InkWell(
+                        onTap: _loadingBal ? null : _loadBalance,
+                        child: Icon(Icons.refresh,
+                            size: 14, color: theme.colorScheme.onSurfaceVariant),
+                      ),
+                    ],
+                  ),
+                  // Max only for tokens — gas is paid separately in ETH, so a
+                  // full-balance token transfer is safe. Native ETH must keep
+                  // gas, so no auto-max there.
+                  if (!_token.isNative &&
+                      _balanceBase != null &&
+                      _balanceBase! > BigInt.zero)
+                    TextButton(
+                      onPressed: _useMax,
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        minimumSize: const Size(0, 30),
+                        foregroundColor: color,
+                      ),
+                      child: const Text('Max'),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 6),
               AmountField(
-                key: ValueKey(_token.contract),
+                key: ValueKey('${_token.contract}:$_amountKey'),
                 network: widget.account.network,
                 accent: color,
                 label: 'Amount',
+                initialText: _prefill,
                 decimalsOverride: _token.isNative ? null : _token.decimals,
                 symbolOverride: _token.isNative ? null : _token.symbol,
                 onBaseChanged: (b) {
