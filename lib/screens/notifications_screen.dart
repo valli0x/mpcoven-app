@@ -744,7 +744,10 @@ class _VerifiedTxDetails extends StatelessWidget {
                 icon: Icons.payments_outlined,
                 label: 'Amount (verified)',
                 value: amountText,
-                color: amtMismatch ? Colors.red : Colors.green),
+                color: amtMismatch ? Colors.red : Colors.green,
+                copyValue: tok != null
+                    ? Units.fromBaseDec(BigInt.parse(valueBase), tok.decimals)
+                    : Units.fromBase(BigInt.parse(valueBase), network)),
           if (toMismatch || amtMismatch)
             Padding(
               padding: const EdgeInsets.only(top: 4),
