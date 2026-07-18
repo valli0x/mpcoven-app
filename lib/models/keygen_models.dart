@@ -300,11 +300,17 @@ class TxSendResponse {
 class IncompleteSignatureResponse {
   final String status;
   final String? completeSignature;
+
+  /// Same signature in CMP-native encoding (33B R point + 32B S scalar) —
+  /// the ONLY format the server escrow's validation accepts. Deposit THIS
+  /// into /v1/escrow, never [completeSignature] (Ethereum r‖s‖v).
+  final String? escrowSignature;
   final String message;
 
   IncompleteSignatureResponse({
     required this.status,
     this.completeSignature,
+    this.escrowSignature,
     required this.message,
   });
 
@@ -312,6 +318,7 @@ class IncompleteSignatureResponse {
     return IncompleteSignatureResponse(
       status: json['status'] as String,
       completeSignature: json['complete_signature'] as String?,
+      escrowSignature: json['escrow_signature'] as String?,
       message: json['message'] as String,
     );
   }

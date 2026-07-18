@@ -444,6 +444,14 @@ class ApiService {
         useServer: true, auth: true, body: {'id': id, 'pub': pub});
   }
 
+  /// Convert a CMP-native ECDSA signature (as released by the escrow) into the
+  /// 65-byte Ethereum r‖s‖v form required by /v1/tx/send. Client-side op.
+  Future<String> sigToEthereum(String cmpSigHex) async {
+    final resp = await _makeRequest('POST', '/v1/sig/ethereum',
+        body: {'signature': cmpSigHex});
+    return (resp['signature'] ?? '').toString();
+  }
+
   /// Initiator: attach the partner-returned signature to our 'sent' history
   /// entry so we can broadcast it too.
   Future<void> completeCosign(String hash, String signature) async {

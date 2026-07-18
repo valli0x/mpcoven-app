@@ -478,7 +478,13 @@ class AppProvider extends ChangeNotifier {
       if ((resp['status'] ?? '') == 'complete') {
         final b64 = (resp['signature'] ?? '').toString();
         if (b64.isNotEmpty) {
-          final hexSig = _b64ToHex(b64);
+          var hexSig = _b64ToHex(b64);
+          if (ev.network == 'eth') {
+            // Escrow stores/releases the CMP-native encoding (the only one its
+            // validation can verify); broadcast needs Ethereum r‖s‖v.
+            hexSig = await _apiService.sigToEthereum(hexSig);
+          }
+          if (hexSig.isEmpty) return false;
           await _apiService.completeCosign(ev.hash, hexSig);
           await loadCosignHistory();
           return true;
@@ -585,12 +591,21 @@ class AppProvider extends ChangeNotifier {
       await loadCosignHistory();
 
       final sig = resp.completeSignature ?? '';
+      // Escrow validation only verifies the CMP-native encoding — depositing
+      // the Ethereum r‖s‖v form would leave the swap "pending" forever.
+      final escrowSig = resp.escrowSignature ?? '';
 
-      if (escrowId.isNotEmpty && sig.isNotEmpty) {
+      if (escrowId.isNotEmpty && escrowSig.isNotEmpty) {
         // Atomic swap: deposit the completed signature into the server escrow
         // under OUR own pending withdrawal's pub+hash (the reciprocal). Escrow
         // releases each side their own withdrawal sig only when both are valid.
-        await _depositToEscrow(escrowId, sig);
+        await _depositToEscrow(escrowId, escrowSig);
+      } else if (escrowId.isNotEmpty && sig.isNotEmpty) {
+        // Old client without escrow_signature — refuse a deposit that can
+        // never validate, and say why.
+        _errorMessage =
+            'This Go client is outdated (no escrow_signature) — update it before running escrow swaps.';
+        notifyListeners();
       } else if (sig.isNotEmpty) {
         // Normal flow: return the signature to the initiator so they can
         // broadcast too.
