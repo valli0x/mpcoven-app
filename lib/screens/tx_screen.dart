@@ -116,28 +116,30 @@ class _TxScreenState extends State<TxScreen> {
                 onChanged: (_) => _resetSent(),
               ),
               if (isEth) ...[
-                const SizedBox(height: 16),
-                DropdownButtonFormField<String>(
-                  value: _token.contract,
-                  decoration: const InputDecoration(
-                    labelText: 'Asset',
-                    prefixIcon: Icon(Icons.token_outlined),
-                  ),
-                  items: kEthTokens
-                      .map((t) => DropdownMenuItem(
-                            value: t.contract,
-                            child: Text(t.isNative
-                                ? '${t.symbol} (native)'
-                                : '${t.symbol} · ERC-20'),
-                          ))
-                      .toList(),
-                  onChanged: (v) {
-                    setState(() {
-                      _token = kEthTokens.firstWhere((t) => t.contract == v);
-                      _amountBase = null; // decimals changed
-                      _resetSent();
-                    });
-                  },
+                const SizedBox(height: 18),
+                Text('Asset',
+                    style: theme.textTheme.labelMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w600)),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: kEthTokens.map((t) {
+                    final selected = t.contract == _token.contract;
+                    return _AssetChip(
+                      token: t,
+                      selected: selected,
+                      onTap: () {
+                        if (selected) return;
+                        setState(() {
+                          _token = t;
+                          _amountBase = null; // decimals changed
+                          _resetSent();
+                        });
+                      },
+                    );
+                  }).toList(),
                 ),
               ],
               const SizedBox(height: 16),
@@ -279,5 +281,85 @@ class _TxScreenState extends State<TxScreen> {
       _sent = err == null;
       _error = err;
     });
+  }
+}
+
+/// Brand-styled asset chip (ETH / USDT / USDC / DAI), matching the app's
+/// rounded, accent-tinted selectable tiles.
+class _AssetChip extends StatelessWidget {
+  final TokenInfo token;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _AssetChip({
+    required this.token,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final c = token.color;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: selected
+                ? c.withValues(alpha: 0.16)
+                : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: selected
+                  ? c.withValues(alpha: 0.8)
+                  : theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+              width: selected ? 1.6 : 1,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 22,
+                height: 22,
+                decoration: BoxDecoration(color: c, shape: BoxShape.circle),
+                alignment: Alignment.center,
+                child: Text(
+                  token.symbol.substring(0, 1),
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                token.symbol,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: selected ? c : theme.colorScheme.onSurface,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                token.isNative ? 'native' : 'ERC-20',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              if (selected) ...[
+                const SizedBox(width: 6),
+                Icon(Icons.check_circle, size: 15, color: c),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
