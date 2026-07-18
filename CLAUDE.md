@@ -127,8 +127,11 @@ A 2-of-2 transaction is signed jointly; broadcasting needs the full tx, so the p
 ## Open items / NOT done yet (don't forget after a reset)
 - **Escrow swap not live-verified end-to-end**: a full two-party swap up to a real pollination RELEASE has not been
   run. (The former format blocker is FIXED — escrow now carries the CMP `escrow_signature`; see the co-sign section.)
-  Remaining HIGH items from review: flower overwrite/no depositor binding (server escrow.go), TOCTOU race in the
-  one-co-sign guard + FROST branch not guarded, hash==tx_data guard skippable when tx_data omitted (make it required).
+  The review's HIGH items are FIXED (backend 35fd6e9, deployed to prod): tx_data now REQUIRED on ECDSA accept;
+  one-co-sign guard atomic (cosignMu + in-progress set, covers FROST; histMu serializes history writes); escrow
+  flowers depositor-bound (slot rewrite/3rd deposit/both-slots rejected; check releases only to the depositor;
+  escrowMu around the deposit RMW). Prod deploy note: recreating se-server changes its IP — `docker exec
+  mpcoven-nginx nginx -s reload` after, or /api 502s. nats needs `-js -m 8222` (healthcheck hits :8222/healthz).
 - **timebox** (time-locked unilateral fallback if the counterparty never deposits a flower) — endpoints exist on the
   server (`/v1/timebox`), but NOT wired into the app. Intentionally deferred.
 - **Explicit confirm dialog** before each co-sign (showing verified From/To/Amount) — discussed, not built.
