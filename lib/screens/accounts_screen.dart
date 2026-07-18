@@ -155,7 +155,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [
@@ -165,21 +165,19 @@ class _AccountsScreenState extends State<AccountsScreen> {
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                         ),
-                        borderRadius: BorderRadius.circular(24),
+                        borderRadius: BorderRadius.circular(18),
                       ),
                       child: Column(
                         children: [
-                          Icon(Icons.security_rounded, size: 40, color: theme.colorScheme.primary),
-                          const SizedBox(height: 10),
                           Text(
                             'MPC Wallet',
-                            style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                            style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
                             textAlign: TextAlign.center,
                           ),
-                          const SizedBox(height: 6),
+                          const SizedBox(height: 2),
                           Text(
                             'Shared ETH & BTC accounts via ECDSA and FROST protocols',
-                            style: theme.textTheme.bodyMedium?.copyWith(
+                            style: theme.textTheme.bodySmall?.copyWith(
                               color: theme.colorScheme.onSurfaceVariant,
                             ),
                             textAlign: TextAlign.center,
