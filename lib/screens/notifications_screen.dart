@@ -132,26 +132,52 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final provider = context.read<AppProvider>();
     final sig = await provider.acceptSignRequest(message);
     if (!mounted) return;
+    final ok = sig != null && sig.isNotEmpty;
+    final err = provider.errorMessage ?? '';
+    // The one-co-sign-per-swap guard isn't a failure — it's protection.
+    final inProgress = err.contains('already in progress');
+    final alreadySigned = err.contains('already co-signed once');
+
     setState(() {
-      if (sig != null && sig.isNotEmpty) {
+      if (ok) {
         _sigResults[message.id] = sig;
+        _states[message.id] = _MsgState.done;
+      } else if (alreadySigned) {
+        // This swap was already co-signed — nothing more to do here.
         _states[message.id] = _MsgState.done;
       } else {
         _states[message.id] = _MsgState.failed;
       }
     });
-    final ok = sig != null && sig.isNotEmpty;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(ok
-            ? 'Signature completed'
-            : (provider.errorMessage ?? 'Failed to co-sign')),
-        backgroundColor: ok ? Colors.green : Colors.red,
-        duration: Duration(seconds: ok ? 3 : 6),
-      ),
-    );
-    if ((sig == null || sig.isEmpty) && mounted) {
+
+    final String msg;
+    final Color bg;
+    if (ok) {
+      msg = 'Signature completed';
+      bg = Colors.green;
+    } else if (inProgress) {
+      msg = 'This swap is already being signed — please wait a moment';
+      bg = Colors.orange;
+    } else if (alreadySigned) {
+      msg = 'Already co-signed once for this swap — check Activity / escrow';
+      bg = Colors.orange;
+    } else {
+      msg = err.isEmpty ? 'Failed to co-sign' : err;
+      bg = Colors.red;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      backgroundColor: bg,
+      duration: Duration(seconds: ok ? 3 : 6),
+    ));
+
+    // Only a genuine failure resets to idle for a retry; the guard cases don't.
+    if (!ok && !alreadySigned && !inProgress && mounted) {
       await Future.delayed(const Duration(seconds: 2));
+      if (mounted) setState(() => _states[message.id] = _MsgState.idle);
+    } else if (inProgress && mounted) {
+      // Let the in-flight co-sign finish, then allow another look.
+      await Future.delayed(const Duration(seconds: 3));
       if (mounted) setState(() => _states[message.id] = _MsgState.idle);
     }
   }
