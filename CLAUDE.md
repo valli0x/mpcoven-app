@@ -132,9 +132,18 @@ A 2-of-2 transaction is signed jointly; broadcasting needs the full tx, so the p
   flowers depositor-bound (slot rewrite/3rd deposit/both-slots rejected; check releases only to the depositor;
   escrowMu around the deposit RMW). Prod deploy note: recreating se-server changes its IP — `docker exec
   mpcoven-nginx nginx -s reload` after, or /api 502s. nats needs `-js -m 8222` (healthcheck hits :8222/healthz).
-- **timebox** (time-locked unilateral fallback if the counterparty never deposits a flower) — endpoints exist on the
-  server (`/v1/timebox`), but NOT wired into the app. Intentionally deferred.
-- **Explicit confirm dialog** before each co-sign (showing verified From/To/Amount) — discussed, not built.
+- **timebox — NOW WIRED (backend 8200f6e)**: the swap's refund fallback. Without it a counterparty who walks away
+  after both sides funded left the funds locked forever (a withdrawal needs their co-signature). Flow: Exchange →
+  "Prepare refund fallback" → TxScreen(initialRefund) → `startCoSign(refund:true)` marks the mailbox `sign-request`
+  with `refund/pair_id/pub`; the ACCEPTOR does NOT return the signature — it seals it via `POST /v1/timebox`
+  (CMP encoding, the only format `validation.Validate` accepts). Initiator's entry is `refund-await`; Activity shows
+  "Claim refund" → `claimRefund` → `GET /v1/timebox` → (eth) `/v1/sig/ethereum` → broadcast with the stored tx_data.
+  **Safety rests on two things:** (1) ETH nonce mutual exclusion — refund and withdrawal share the account nonce, so
+  only one can land; (2) `TIMEBOX_DELAY` (env, default 1h) MUST exceed the honest completion window — a party that
+  already collected its swap payout could otherwise also claim its refund, so **claim your payout promptly**.
+- **Explicit confirm dialog before each co-sign — DONE**: `_confirmCoSign` in notifications_screen decodes tx_data
+  first and shows Spending-from / Token / To / Amount, a red "signed tx differs from what was displayed — do NOT
+  sign" block on mismatch, and a red warning when tx_data can't be decoded at all. Accept & Sign is gated on it.
 - **ERC-20 / USDT NOW supported** (backend 57778dc, app f3050a8): `client/erc20.go` builds `transfer(to,amount)` calldata; `/v1/tx/hash` takes a `token` contract (value 0, gas 65k), `/v1/tx/decode` returns `is_erc20`+real recipient/amount from calldata (verify-what-you-sign holds), `/v1/balance/check` reads `balanceOf`. App: `services/tokens.dart` (USDT/USDC/DAI mainnet), tx_screen asset picker, decimals-aware AmountField, verified token display in Notifications. Broadcast via tx_data unchanged. MPC signing was already token-agnostic (signs any hash). NOT done: per-account token BALANCE display in the accounts list (only the native ETH balance shows there); BTC/FROST is native only.
 
 ## Exchange = shared object (per-side)

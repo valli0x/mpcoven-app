@@ -402,6 +402,7 @@ class ApiService {
     String? txData,
     String? escrowId,
     String? pub,
+    bool refund = false,
   }) async {
     final response = await _makeRequest(
       'POST',
@@ -413,6 +414,7 @@ class ApiService {
         'hash_tx': hashTx,
         'my_id': myId,
         'another_id': anotherId,
+        if (refund) 'refund': true,
         if (to != null && to.isNotEmpty) 'to': to,
         if (amount != null && amount.isNotEmpty) 'amount': amount,
         if (txData != null && txData.isNotEmpty) 'tx_data': txData,
@@ -455,6 +457,40 @@ class ApiService {
   }) async {
     return _makeRequest('POST', '/v1/escrow/check',
         useServer: true, auth: true, body: {'id': id, 'pub': pub});
+  }
+
+  // ── Timebox (server): time-locked unilateral refund fallback ──
+
+  /// Seal a co-signed refund signature. It becomes retrievable by either pair
+  /// member only after the server's timebox delay — so the initiator cannot use
+  /// it to bail out while the swap is still honestly in flight.
+  Future<Map<String, dynamic>> timeboxPost({
+    required String alg,
+    required String pairId,
+    required String pub,
+    required String hash,
+    required String sig,
+  }) async {
+    return _makeRequest('POST', '/v1/timebox',
+        useServer: true,
+        auth: true,
+        body: {
+          'alg': alg,
+          'pair_id': pairId,
+          'pub': pub,
+          'hash': hash,
+          'sig': sig,
+        });
+  }
+
+  /// Poll a sealed refund: {has_signature, valid, ready, available_in_seconds,
+  /// signature(base64, CMP format)}.
+  Future<Map<String, dynamic>> timeboxGet({
+    required String pub,
+    required String hash,
+  }) async {
+    return _makeRequest('GET', '/v1/timebox?pub=$pub&hash=$hash',
+        useServer: true, auth: true);
   }
 
   /// Convert a CMP-native ECDSA signature (as released by the escrow) into the

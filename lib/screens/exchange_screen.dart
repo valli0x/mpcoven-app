@@ -252,6 +252,16 @@ class _ExchangeCardState extends State<_ExchangeCard> {
               onPressed: () => _withdrawViaEscrow(provider),
             ),
           ),
+          const SizedBox(height: 6),
+          SizedBox(
+            width: double.infinity,
+            child: TextButton.icon(
+              icon: const Icon(Icons.lock_clock, size: 16),
+              style: TextButton.styleFrom(foregroundColor: Colors.orange),
+              label: const Text('Prepare refund fallback (time-locked)'),
+              onPressed: () => _prepareRefund(provider),
+            ),
+          ),
         ],
       ],
     );
@@ -616,6 +626,52 @@ class _ExchangeCardState extends State<_ExchangeCard> {
   /// Pick which escrow account in this exchange to withdraw from (the one the
   /// Withdraw from MY assigned escrow only (creator → A, partner → B). No
   /// picker — both parties can't pick the same account.
+  /// Prepare the swap-failure fallback: ask the partner to co-sign returning
+  /// the escrow *I funded* (the one THEY withdraw from) back to me. Their
+  /// signature is sealed in the server timebox, so I can only use it after the
+  /// lock opens — it cannot cut short a swap that is still running.
+  Future<void> _prepareRefund(AppProvider provider) async {
+    final fundedAddr = provider.partnerExchangeWithdrawAddress(entry);
+    if (fundedAddr.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('This exchange has no creator set — re-save it first')));
+      return;
+    }
+    final account = provider.escrowAccountFor(fundedAddr);
+    if (account == null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              'Escrow ${_short(fundedAddr)} is not one of your accounts')));
+      return;
+    }
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Prepare refund fallback'),
+        content: Text(
+            'Ask your partner to co-sign returning ${_short(fundedAddr)} '
+            '(the escrow you funded) back to you.\n\n'
+            'Their signature is time-locked on the server: you can only '
+            'broadcast it after the lock opens, so it cannot be used while the '
+            'swap is still honestly in flight.\n\n'
+            'Claim your swap payout promptly — the refund window is a fallback, '
+            'not a race you can ignore.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Continue')),
+        ],
+      ),
+    );
+    if (go != true || !mounted) return;
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => TxScreen(account: account, initialRefund: true),
+    ));
+  }
+
   Future<void> _withdrawViaEscrow(AppProvider provider) async {
     final myAddr = provider.myExchangeWithdrawAddress(entry);
     if (myAddr.isEmpty) {

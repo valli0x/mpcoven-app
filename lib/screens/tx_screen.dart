@@ -22,11 +22,17 @@ class TxScreen extends StatefulWidget {
   /// use the same id. Falls back to the pair id inside the provider when empty.
   final String? escrowId;
 
+  /// Time-locked refund fallback: the partner's co-signature is sealed in the
+  /// server timebox instead of coming back, so it can only be broadcast once
+  /// the lock opens (i.e. after the swap is dead).
+  final bool initialRefund;
+
   const TxScreen({
     super.key,
     required this.account,
     this.initialViaEscrow = false,
     this.escrowId,
+    this.initialRefund = false,
   });
 
   @override
@@ -41,6 +47,7 @@ class _TxScreenState extends State<TxScreen> {
   bool _loading = false;
   bool _sent = false;
   bool _viaEscrow = false;
+  bool _refund = false;
   String? _error;
   TokenInfo _token = kNativeEth;
 
@@ -53,6 +60,11 @@ class _TxScreenState extends State<TxScreen> {
   void initState() {
     super.initState();
     _viaEscrow = widget.initialViaEscrow;
+    _refund = widget.initialRefund;
+    if (_refund) {
+      // A refund goes back to the funder — default to the signed-in wallet.
+      _toController.text = context.read<AppProvider>().authAddress ?? '';
+    }
     _loadBalance();
   }
 
@@ -125,7 +137,9 @@ class _TxScreenState extends State<TxScreen> {
     final color = isEth ? const Color(0xFF627EEA) : const Color(0xFFF7931A);
 
     return PageScaffold(
-      title: 'Send ${widget.account.network.toUpperCase()}',
+      title: _refund
+          ? 'Refund ${widget.account.network.toUpperCase()}'
+          : 'Send ${widget.account.network.toUpperCase()}',
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Form(
@@ -266,7 +280,30 @@ class _TxScreenState extends State<TxScreen> {
               // Escrow swap is only entered from an accepted Exchange (which
               // gives both sides a shared id + coordination). Here we just show
               // a fixed banner — not a free-standing toggle in plain co-sign.
-              if (_viaEscrow) ...[
+              if (_refund) ...[
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(12),
+                    border:
+                        Border.all(color: Colors.orange.withValues(alpha: 0.35)),
+                  ),
+                  child: Row(children: [
+                    const Icon(Icons.lock_clock, size: 18, color: Colors.orange),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Refund fallback. The partner co-signs this now, but the '
+                        'signature is time-locked on the server — you can only '
+                        'broadcast it after the lock opens, if the swap never '
+                        'completed. Claim it from Activity.',
+                        style: theme.textTheme.labelMedium),
+                    ),
+                  ]),
+                ),
+                const SizedBox(height: 12),
+              ] else if (_viaEscrow) ...[
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
@@ -288,10 +325,16 @@ class _TxScreenState extends State<TxScreen> {
                 const SizedBox(height: 12),
               ],
               GradientButton(
-                text: _viaEscrow ? 'Send to escrow (swap)' : 'Send for co-signing',
-                icon: _viaEscrow
-                    ? Icons.account_balance_outlined
-                    : Icons.handshake_outlined,
+                text: _refund
+                    ? 'Request time-locked refund'
+                    : _viaEscrow
+                        ? 'Send to escrow (swap)'
+                        : 'Send for co-signing',
+                icon: _refund
+                    ? Icons.lock_clock
+                    : _viaEscrow
+                        ? Icons.account_balance_outlined
+                        : Icons.handshake_outlined,
                 isLoading: _loading,
                 gradientColors: [color, color.withValues(alpha: 0.7)],
                 onPressed: _start,
@@ -379,8 +422,9 @@ class _TxScreenState extends State<TxScreen> {
           toAddress: _toController.text.trim(),
           amountBase: base,
           viaEscrow: _viaEscrow,
-          escrowIdOverride: widget.escrowId,
+          escrowIdOverride: _refund ? null : widget.escrowId,
           token: _token.isNative ? null : _token.contract,
+          refund: _refund,
         );
     if (!mounted) return;
     setState(() {

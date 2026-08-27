@@ -379,6 +379,7 @@ class AppProvider extends ChangeNotifier {
     required String hashTx,
     String txData = '',
     String escrowId = '',
+    bool refund = false,
   }) async {
     final partner = _partnerAddressFor(account);
     final pairId = findPairIdWith(partner);
@@ -399,6 +400,11 @@ class AppProvider extends ChangeNotifier {
           'hash_tx': hashTx,
           'tx_data': txData,
           if (escrowId.isNotEmpty) 'escrow_id': escrowId,
+          // Refund co-sign: the acceptor seals the result in the timebox
+          // (bound to this pair) instead of handing it back.
+          if (refund) 'refund': true,
+          if (refund) 'pair_id': pairId,
+          if (refund) 'pub': account.publicKey,
           'initiator': _authAddress,
         },
       );
@@ -416,6 +422,7 @@ class AppProvider extends ChangeNotifier {
     bool viaEscrow = false,
     String? escrowIdOverride,
     String? token, // ERC-20 contract; null/'' = native ETH
+    bool refund = false,
   }) async {
     try {
       // Pollination id for the atomic swap. Prefer an explicit id (e.g. the
@@ -432,7 +439,9 @@ class AppProvider extends ChangeNotifier {
               ? escrowIdOverride
               : (findPairIdWith(partner) ?? ''))
           : '';
-      final pub = viaEscrow ? (account.publicKey) : '';
+      // The timebox is keyed by the shared account pubkey, so a refund needs
+      // it too (both parties derive the same key for lookup).
+      final pub = (viaEscrow || refund) ? (account.publicKey) : '';
 
       final hashResp = await _apiService.createTxHash(
         network: account.network,
@@ -448,6 +457,7 @@ class AppProvider extends ChangeNotifier {
         hashTx: hashResp.hash,
         txData: hashResp.txData ?? '',
         escrowId: escrowId,
+        refund: refund,
       );
       await _apiService.sendIncompleteSignature(
         alg: account.network == 'eth' ? 'ecdsa' : 'frost',
@@ -461,6 +471,7 @@ class AppProvider extends ChangeNotifier {
         txData: hashResp.txData ?? '',
         escrowId: escrowId,
         pub: pub,
+        refund: refund,
       );
       await loadCosignHistory();
       return null;
@@ -472,6 +483,92 @@ class AppProvider extends ChangeNotifier {
 
   /// Poll the escrow for a released signature for our escrow-await entry and,
   /// when complete, mark it ready to broadcast. Returns true if released.
+  // hash -> RFC3339 "available_at" reported when we sealed a refund.
+  final Map<String, String> _refundSealedAt = {};
+  String? refundSealedAt(String hash) => _refundSealedAt[hash];
+
+  /// Poll a sealed refund. Returns the raw server view:
+  /// {has_signature, valid, ready, available_in_seconds, available_at}.
+  Future<Map<String, dynamic>?> refundStatus(CosignEvent ev) async {
+    if (ev.pub.isEmpty || ev.hash.isEmpty) return null;
+    try {
+      return await _apiService.timeboxGet(pub: ev.pub, hash: ev.hash);
+    } catch (e) {
+      _handleAuthError(e);
+      return null;
+    }
+  }
+
+  /// Claim a time-locked refund once the timebox has opened and broadcast it.
+  /// Returns the on-chain tx hash, or null (with [errorMessage] set) if the
+  /// refund is not available yet / cannot be broadcast.
+  Future<String?> claimRefund(CosignEvent ev) async {
+    if (ev.pub.isEmpty || ev.hash.isEmpty) {
+      _errorMessage = 'This entry has no sealed refund (missing pub/hash).';
+      notifyListeners();
+      return null;
+    }
+    try {
+      final res = await _apiService.timeboxGet(pub: ev.pub, hash: ev.hash);
+      if (res['has_signature'] != true) {
+        _errorMessage =
+            'No refund sealed yet — the partner has not co-signed it.';
+        notifyListeners();
+        return null;
+      }
+      if (res['ready'] != true) {
+        final secs = res['available_in_seconds'];
+        _errorMessage = secs is int
+            ? 'Refund is still time-locked — available in ${_humanDuration(secs)}.'
+            : 'Refund is still time-locked.';
+        notifyListeners();
+        return null;
+      }
+      final b64 = (res['signature'] ?? '').toString();
+      if (b64.isEmpty) {
+        _errorMessage = 'Timebox returned no signature.';
+        notifyListeners();
+        return null;
+      }
+      var hexSig = _b64ToHex(b64);
+      if (ev.network == 'eth') {
+        // Sealed in CMP encoding; broadcast needs Ethereum r‖s‖v.
+        hexSig = await _apiService.sigToEthereum(hexSig);
+      }
+      if (hexSig.isEmpty) {
+        _errorMessage = 'Failed to convert the refund signature.';
+        notifyListeners();
+        return null;
+      }
+      final resp = await _apiService.sendTransaction(
+        network: ev.network,
+        signature: hexSig,
+        txData: ev.txData,
+        to: ev.to,
+        value: ev.amount,
+      );
+      await _apiService.completeCosign(ev.hash, hexSig);
+      await loadCosignHistory();
+      _errorMessage = null;
+      notifyListeners();
+      return resp.txHash;
+    } catch (e) {
+      _handleAuthError(e);
+      _errorMessage = e is ApiError ? e.message : '$e';
+      notifyListeners();
+      return null;
+    }
+  }
+
+  static String _humanDuration(int seconds) {
+    if (seconds < 60) return '${seconds}s';
+    final m = seconds ~/ 60;
+    if (m < 60) return '${m}m';
+    final h = m ~/ 60;
+    final rem = m % 60;
+    return rem == 0 ? '${h}h' : '${h}h ${rem}m';
+  }
+
   Future<bool> checkEscrow(CosignEvent ev) async {
     if (ev.escrowId.isEmpty || ev.pub.isEmpty) return false;
     try {
@@ -536,6 +633,8 @@ class AppProvider extends ChangeNotifier {
     final amount = (body['amount'] ?? '').toString();
     final txData = (body['tx_data'] ?? '').toString();
     final escrowId = (body['escrow_id'] ?? '').toString();
+    final isRefund = body['refund'] == true;
+    final refundPairId = (body['pair_id'] ?? '').toString();
 
     // Use OUR local account for this escrow (our own party ids / index).
     AccountMeta? acct;
@@ -597,7 +696,42 @@ class AppProvider extends ChangeNotifier {
       // the Ethereum r‖s‖v form would leave the swap "pending" forever.
       final escrowSig = resp.escrowSignature ?? '';
 
-      if (escrowId.isNotEmpty && escrowSig.isNotEmpty) {
+      if (isRefund) {
+        // Time-locked refund: DON'T hand the signature back — seal it in the
+        // server timebox so the requester can only use it after the delay
+        // (i.e. once the swap is definitively dead). The signature is stored in
+        // CMP encoding, the only format the server can validate.
+        if (escrowSig.isEmpty) {
+          _errorMessage =
+              'This Go client is outdated (no escrow_signature) — update it before co-signing refunds.';
+          notifyListeners();
+          return null;
+        }
+        final pairId = refundPairId.isNotEmpty
+            ? refundPairId
+            : (findPairIdWith(message.from) ?? '');
+        if (pairId.isEmpty) {
+          _errorMessage = 'No pair with ${message.from} — cannot seal the refund.';
+          notifyListeners();
+          return null;
+        }
+        try {
+          final res = await _apiService.timeboxPost(
+            alg: acct.network == 'eth' ? 'ecdsa' : 'frost',
+            pairId: pairId,
+            // OUR local account pubkey — never the sender's claimed value.
+            pub: acct.publicKey,
+            hash: hash,
+            sig: escrowSig,
+          );
+          _errorMessage = null;
+          _refundSealedAt[hash] = (res['available_at'] ?? '').toString();
+        } catch (e) {
+          _errorMessage = e is ApiError ? e.message : 'Failed to seal refund: $e';
+          notifyListeners();
+          return null;
+        }
+      } else if (escrowId.isNotEmpty && escrowSig.isNotEmpty) {
         // Atomic swap: deposit the completed signature into the server escrow
         // under OUR own pending withdrawal's pub+hash (the reciprocal). Escrow
         // releases each side their own withdrawal sig only when both are valid.

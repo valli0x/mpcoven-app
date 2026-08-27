@@ -127,7 +127,144 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
   }
 
+  /// Explicit, last-chance confirmation before a co-signature is produced.
+  /// Everything shown here is decoded from tx_data — the bytes that will
+  /// actually be signed — never the sender's claimed display fields.
+  Future<bool> _confirmCoSign(MailboxMessage message) async {
+    final provider = context.read<AppProvider>();
+    final body = message.body is Map
+        ? (message.body as Map).cast<String, dynamic>()
+        : const <String, dynamic>{};
+    final network = (body['network'] ?? 'eth').toString();
+    final escrow = (body['escrow_address'] ?? '').toString();
+    final txData = (body['tx_data'] ?? '').toString();
+    final claimedTo = (body['to'] ?? '').toString();
+    final claimedAmount = (body['amount'] ?? '').toString();
+    final isRefund = body['refund'] == true;
+
+    // Which of MY accounts this spends from.
+    String fromLabel = escrow;
+    for (final a in provider.accounts) {
+      if (a.address.toLowerCase() == escrow.toLowerCase()) {
+        fromLabel = '${a.network.toUpperCase()} #${a.index}';
+        break;
+      }
+    }
+
+    Map<String, dynamic>? decoded;
+    if (txData.isNotEmpty) {
+      try {
+        decoded = await provider.apiService.decodeTx(network, txData);
+      } catch (_) {/* fall through to the unverified warning */}
+    }
+    if (!mounted) return false;
+
+    final to = (decoded?['to'] ?? '').toString();
+    final valueBase = (decoded?['value'] ?? '').toString();
+    final isErc20 = decoded?['is_erc20'] == true;
+    final tok = isErc20 ? tokenForContract((decoded?['token'] ?? '').toString()) : null;
+    String amountText = '';
+    try {
+      if (valueBase.isNotEmpty) {
+        amountText = tok != null
+            ? '${Units.fromBaseDec(BigInt.parse(valueBase), tok.decimals)} ${tok.symbol}'
+            : '${Units.fromBase(BigInt.parse(valueBase), network)} ${Units.symbol(network)}';
+      }
+    } catch (_) {}
+
+    final mismatch = decoded != null &&
+        ((claimedTo.isNotEmpty && to.toLowerCase() != claimedTo.toLowerCase()) ||
+            (claimedAmount.isNotEmpty && valueBase != claimedAmount));
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        final t = Theme.of(ctx);
+        Widget row(String k, String v, {Color? c}) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(children: [
+                Text(k,
+                    style: t.textTheme.bodySmall
+                        ?.copyWith(color: t.colorScheme.onSurfaceVariant)),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(v,
+                      textAlign: TextAlign.right,
+                      overflow: TextOverflow.ellipsis,
+                      style: t.textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w600, color: c)),
+                ),
+              ]),
+            );
+        return AlertDialog(
+          title: Text(isRefund ? 'Co-sign refund?' : 'Authorize this transaction?'),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            Text(
+              decoded == null
+                  ? 'WARNING: tx_data could not be decoded — you would be signing '
+                      'a hash you cannot inspect. Do not proceed unless you know why.'
+                  : 'Your signature authorizes exactly this. Verified from the '
+                      'transaction bytes being signed:',
+              style: t.textTheme.bodySmall?.copyWith(
+                  color: decoded == null ? Colors.red : t.colorScheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 12),
+            row('Spending from', fromLabel),
+            if (tok != null) row('Token', tok.symbol),
+            if (to.isNotEmpty) row('To', to),
+            if (amountText.isNotEmpty) row('Amount', amountText),
+            if (mismatch) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.red.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(children: [
+                  const Icon(Icons.warning_amber_rounded,
+                      size: 16, color: Colors.red),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                        'The signed transaction differs from what the sender '
+                        'displayed. Do NOT sign.',
+                        style: t.textTheme.labelSmall?.copyWith(
+                            color: Colors.red, fontWeight: FontWeight.bold)),
+                  ),
+                ]),
+              ),
+            ],
+            if (isRefund) ...[
+              const SizedBox(height: 10),
+              Text(
+                  'This is a refund fallback — your signature will be sealed in '
+                  'the timebox and only usable after the lock opens.',
+                  style: t.textTheme.labelSmall
+                      ?.copyWith(color: Colors.orange)),
+            ],
+          ]),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel')),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: mismatch
+                  ? FilledButton.styleFrom(backgroundColor: Colors.red)
+                  : null,
+              child: Text(isRefund ? 'Co-sign refund' : 'Sign'),
+            ),
+          ],
+        );
+      },
+    );
+    return ok == true;
+  }
+
   Future<void> _acceptSign(MailboxMessage message) async {
+    if (!await _confirmCoSign(message)) return;
+    if (!mounted) return;
     setState(() => _states[message.id] = _MsgState.accepting);
     final provider = context.read<AppProvider>();
     final sig = await provider.acceptSignRequest(message);
@@ -212,6 +349,11 @@ class _MessageCard extends StatelessWidget {
   bool get _isKeygen => message.type == 'keygen-init';
   bool get _isSignRequest => message.type == 'sign-request';
   bool get _isExchange => message.type == 'exchange-proposal';
+
+  /// A time-locked refund co-sign: the completed signature is sealed in the
+  /// server timebox, so the requester can only use it after the delay — it
+  /// cannot be used to bail out of a swap that is still honestly in flight.
+  bool get _isRefund => _isSignRequest && _body['refund'] == true;
   bool get _isEth => (_body['network'] ?? 'eth').toString() == 'eth';
 
   String _short(String s, {int head = 6, int tail = 6}) =>
@@ -274,9 +416,11 @@ class _MessageCard extends StatelessWidget {
                       Text(
                         _isKeygen
                             ? 'Keygen Request'
-                            : _isSignRequest
-                                ? 'Signature Request'
-                                : _isExchange
+                            : _isRefund
+                                ? 'Refund Co-sign (time-locked)'
+                                : _isSignRequest
+                                    ? 'Signature Request'
+                                    : _isExchange
                                     ? 'Exchange Proposal'
                                     : 'Message',
                         style: theme.textTheme.titleSmall
@@ -345,6 +489,31 @@ class _MessageCard extends StatelessWidget {
                 ),
               ),
             ] else if (_isSignRequest) ...[
+              if (_isRefund) ...[
+                Container(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(10),
+                    border:
+                        Border.all(color: Colors.orange.withValues(alpha: 0.35)),
+                  ),
+                  child: Row(children: [
+                    const Icon(Icons.lock_clock,
+                        size: 16, color: Colors.orange),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Swap-failure fallback. Your signature is sealed on the '
+                        'server and only becomes usable after the time-lock — '
+                        'it cannot cut a swap that is still running.',
+                        style: Theme.of(context).textTheme.labelSmall,
+                      ),
+                    ),
+                  ]),
+                ),
+              ],
               _buildSignDetails(context, accent),
             ] else if (_isExchange) ...[
               _buildExchangeDetails(context, accent),
@@ -582,11 +751,13 @@ class _MessageCard extends StatelessWidget {
                           ? Icons.swap_horiz_rounded
                           : Icons.check,
                   size: 18),
-              label: Text(_isSignRequest
-                  ? 'Accept & Sign'
-                  : _isExchange
-                      ? 'Accept'
-                      : 'Accept & Generate'),
+              label: Text(_isRefund
+                  ? 'Co-sign refund'
+                  : _isSignRequest
+                      ? 'Accept & Sign'
+                      : _isExchange
+                          ? 'Accept'
+                          : 'Accept & Generate'),
             ),
           ],
         );

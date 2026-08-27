@@ -134,6 +134,27 @@ class _EventCardState extends State<_EventCard> {
   bool get _isEscrowAwait =>
       event.status == 'escrow-await' && event.escrowId.isNotEmpty;
 
+  // A time-locked refund: claimable only once the server's timebox opens.
+  bool get _isRefundAwait =>
+      event.status == 'refund-await' && event.pub.isNotEmpty;
+  bool _claimingRefund = false;
+
+  Future<void> _claimRefund() async {
+    setState(() => _claimingRefund = true);
+    final provider = context.read<AppProvider>();
+    final txHash = await provider.claimRefund(event);
+    if (!mounted) return;
+    setState(() => _claimingRefund = false);
+    final ok = txHash != null && txHash.isNotEmpty;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(ok
+          ? 'Refund broadcast: ${txHash.substring(0, 12)}…'
+          : (provider.errorMessage ?? 'Refund not available yet')),
+      backgroundColor: ok ? Colors.green : Colors.orange,
+      duration: Duration(seconds: ok ? 4 : 6),
+    ));
+  }
+
   Future<void> _checkEscrow() async {
     setState(() => _checkingEscrow = true);
     final ok = await context.read<AppProvider>().checkEscrow(event);
@@ -185,6 +206,7 @@ class _EventCardState extends State<_EventCard> {
         return Colors.red;
       case 'sent':
       case 'escrow-await':
+      case 'refund-await':
         return Colors.orange;
       default:
         return Colors.grey;
@@ -197,6 +219,8 @@ class _EventCardState extends State<_EventCard> {
         return 'awaiting partner';
       case 'escrow-await':
         return 'in escrow';
+      case 'refund-await':
+        return 'refund time-locked';
       case 'completed':
         return 'completed';
       case 'broadcast':
@@ -313,6 +337,24 @@ class _EventCardState extends State<_EventCard> {
                           child: CircularProgressIndicator(strokeWidth: 2))
                       : const Icon(Icons.account_balance_outlined, size: 18),
                   label: const Text('Check escrow'),
+                ),
+              ),
+            ],
+            if (_isRefundAwait) ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _claimingRefund ? null : _claimRefund,
+                  style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.orange),
+                  icon: _claimingRefund
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.lock_clock, size: 18),
+                  label: const Text('Claim refund'),
                 ),
               ),
             ],
